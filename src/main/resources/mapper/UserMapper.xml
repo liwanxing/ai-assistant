@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liwx.learning.mapper.UserMapper">
+
+    <resultMap id="UserResultMap" type="com.liwx.learning.entity.User">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="password" column="password"/>
+        <result property="nickname" column="nickname"/>
+        <result property="email" column="email"/>
+        <result property="phone" column="phone"/>
+        <result property="status" column="status"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="deleted" column="deleted"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, username, password, nickname, email, phone, status, create_time, update_time, deleted
+    </sql>
+
+    <select id="selectAll" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM sys_user WHERE deleted = 0
+    </select>
+
+    <select id="selectById" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM sys_user WHERE id = #{id} AND deleted = 0
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_user (username, password, nickname, email, phone)
+        VALUES (#{username}, #{password}, #{nickname}, #{email}, #{phone})
+    </insert>
+
+    <update id="update">
+        UPDATE sys_user
+        <set>
+            <if test="username != null">username = #{username},</if>
+            <if test="password != null">password = #{password},</if>
+            <if test="nickname != null">nickname = #{nickname},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="status != null">status = #{status},</if>
+        </set>
+        WHERE id = #{id} AND deleted = 0
+    </update>
+
+    <update id="deleteById">
+        UPDATE sys_user SET deleted = 1 WHERE id = #{id}
+    </update>
+
+</mapper>

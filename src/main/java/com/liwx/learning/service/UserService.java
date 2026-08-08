@@ -1,52 +1,44 @@
 package com.liwx.learning.service;
 
 import com.liwx.learning.entity.User;
+import com.liwx.learning.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class UserService {
 
-    private final List<User> users = new ArrayList<>();
-    private final AtomicLong idGenerator = new AtomicLong(1);
+    private final UserMapper userMapper;
 
-    public UserService() {
-        // 初始化两条假数据
-        users.add(new User(idGenerator.getAndIncrement(), "liwanxing", "liwanxing@example.com"));
-        users.add(new User(idGenerator.getAndIncrement(), "zhangsan", "zhangsan@example.com"));
+    public UserService(UserMapper userMapper) {
+        this.userMapper = userMapper;
     }
 
     public List<User> getAllUsers() {
-        return users;
+        return userMapper.selectAll();
     }
 
     public User getUserById(Long id) {
-        return users.stream()
-                .filter(u -> u.getId().equals(id))
-                .findFirst()
-                .orElse(null);
+        return userMapper.selectById(id);
     }
 
     public User createUser(User user) {
-        user.setId(idGenerator.getAndIncrement());
-        users.add(user);
+        userMapper.insert(user);
         return user;
     }
 
     public User updateUser(Long id, User user) {
-        User existing = getUserById(id);
+        User existing = userMapper.selectById(id);
         if (existing == null) {
             return null;
         }
-        existing.setUsername(user.getUsername());
-        existing.setEmail(user.getEmail());
-        return existing;
+        user.setId(id);
+        userMapper.update(user);
+        return userMapper.selectById(id);
     }
 
     public boolean deleteUser(Long id) {
-        return users.removeIf(u -> u.getId().equals(id));
+        return userMapper.deleteById(id) > 0;
     }
 }
