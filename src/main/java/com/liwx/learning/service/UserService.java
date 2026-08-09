@@ -1,5 +1,7 @@
 package com.liwx.learning.service;
 
+import com.liwx.learning.common.Assert;
+import com.liwx.learning.common.ResultCode;
 import com.liwx.learning.entity.User;
 import com.liwx.learning.mapper.UserMapper;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,9 @@ public class UserService {
     }
 
     public User getUserById(Long id) {
-        return userMapper.selectById(id);
+        User user = userMapper.selectById(id);
+        Assert.notNull(user, ResultCode.NOT_FOUND);
+        return user;
     }
 
     public User createUser(User user) {
@@ -30,15 +34,15 @@ public class UserService {
 
     public User updateUser(Long id, User user) {
         User existing = userMapper.selectById(id);
-        if (existing == null) {
-            return null;
-        }
+        Assert.notNull(existing, ResultCode.NOT_FOUND);
         user.setId(id);
         userMapper.update(user);
         return userMapper.selectById(id);
     }
 
     public boolean deleteUser(Long id) {
+        User existing = userMapper.selectById(id);
+        Assert.notNull(existing, ResultCode.NOT_FOUND);
         return userMapper.deleteById(id) > 0;
     }
 }

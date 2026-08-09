@@ -1,5 +1,6 @@
 package com.liwx.learning.controller;
 
+import com.liwx.learning.common.Result;
 import com.liwx.learning.entity.User;
 import com.liwx.learning.service.UserService;
 import org.springframework.web.bind.annotation.*;
@@ -18,32 +19,32 @@ public class UserController {
 
     // GET /users - 查询所有用户
     @GetMapping
-    public List<User> getAllUsers() {
-        return userService.getAllUsers();
+    public Result<List<User>> getAllUsers() {
+        return Result.success(userService.getAllUsers());
     }
 
     // GET /users/{id} - 查询单个用户
     @GetMapping("/{id}")
-    public User getUserById(@PathVariable Long id) {
-        return userService.getUserById(id);
+    public Result<User> getUserById(@PathVariable Long id) {
+        return Result.success(userService.getUserById(id));
     }
 
     // POST /users - 创建用户
     @PostMapping
-    public User createUser(@RequestBody User user) {
-        return userService.createUser(user);
+    public Result<User> createUser(@RequestBody User user) {
+        return Result.success(userService.createUser(user));
     }
 
     // PUT /users/{id} - 更新用户
     @PutMapping("/{id}")
-    public User updateUser(@PathVariable Long id, @RequestBody User user) {
-        return userService.updateUser(id, user);
+    public Result<User> updateUser(@PathVariable Long id, @RequestBody User user) {
+        return Result.success(userService.updateUser(id, user));
     }
 
     // DELETE /users/{id} - 删除用户
     @DeleteMapping("/{id}")
-    public String deleteUser(@PathVariable Long id) {
-        boolean success = userService.deleteUser(id);
-        return success ? "删除成功" : "用户不存在";
+    public Result<Void> deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return Result.success();
     }
 }
