@@ -1,4 +1,5 @@
 services:
+  # MySQL database
   mysql:
     image: mysql:8.0
     container_name: mysql8
@@ -11,9 +12,27 @@ services:
       - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
+  # Redis cache (Sa-Token token storage)
   redis:
     image: redis:7
     container_name: redis7
     ports:
       - "6379:6379"
     command: --requirepass 123456
+
+  # Spring Boot application (only rebuild this when code changes)
+  app:
+    image: liwanxing-learning-projects-app:latest
+    container_name: app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - redis
+    # Override config: use Docker service names instead of localhost
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=123456
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PASSWORD=123456
