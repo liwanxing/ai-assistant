@@ -11,6 +11,14 @@ import java.util.Map;
 
 /**
  * 登录认证接口
+ *
+ * Sa-Token 的核心就是对一张"token 表"做增删改查：
+ *   login()    → 新增一条 token-userId 记录（INSERT）
+ *   checkLogin()→ 查 token 是否有效（SELECT，在拦截器里自动执行）
+ *   getLoginId()→ 根据 token 查 userId（SELECT）
+ *   logout()   → 删除这条 token 记录（DELETE）
+ *
+ * 现在存在内存里，重启就清空；以后换 Redis 存，重启也不丢
  */
 @RestController
 public class AuthController {
@@ -32,5 +40,23 @@ public class AuthController {
             return Result.success(data);
         }
         return Result.error(401, "账号或密码错误");
+    }
+
+    /**
+     * 登出：销毁当前会话的 token，之前发的 token 立刻失效
+     */
+    @GetMapping("/logout")
+    public Result<Void> logout() {
+        StpUtil.logout();
+        return Result.success();
+    }
+
+    /**
+     * 获取当前登录用户ID
+     * StpUtil.getLoginId() 会从 token 反查到对应的用户ID
+     */
+    @GetMapping("/me")
+    public Result<Long> currentUser() {
+        return Result.success(StpUtil.getLoginIdAsLong());
     }
 }
