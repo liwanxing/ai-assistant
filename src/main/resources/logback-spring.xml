@@ -10,6 +10,12 @@
           不配这个文件，日志也能打印，只是默认只打到控制台。
           @Slf4j 注解只是帮你省了一行 Logger 定义代码。
           这个文件的作用就是改默认行为：指定输出路径、格式、级别，让日志按你的要求来。
+
+        环境区分（Spring Profile）：
+          application.properties 里设了 spring.profiles.active=dev
+          dev  : DEBUG 级别，控制台+文件都打（开发时看详细的）
+          prod : INFO 级别，控制台+文件都打（线上只留必要的）
+          线上启动时加参数 spring.profiles.active=prod 切换
     -->
 
     <!-- ====== 属性变量，下面引用 ====== -->
@@ -57,18 +63,31 @@
         </encoder>
     </appender>
 
-    <!-- ====== 日志级别配置 ====== -->
-    <!-- 根级别：所有包默认 INFO -->
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE"/>
-        <appender-ref ref="ERROR_FILE"/>
-    </root>
+    <!-- ====== 日志级别配置（按环境区分）====== -->
 
-    <!-- 自己项目的包设成 DEBUG，开发时能看到更详细的日志 -->
-    <logger name="com.liwx.learning" level="DEBUG"/>
+    <!-- 开发环境：DEBUG 级别，控制台+文件都打 -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>   <!-- 同时输出到控制台（Docker 的 docker logs 靠这个） -->
+            <appender-ref ref="FILE"/>      <!-- 同时输出到日志文件 -->
+            <appender-ref ref="ERROR_FILE"/> <!-- 同时输出到错误日志文件 -->
+        </root>
+        <!-- 自己项目的包设成 DEBUG，开发时能看到更详细的日志 -->
+        <logger name="com.liwx.learning" level="DEBUG"/>
+        <!-- MyBatis 的 SQL 日志（DEBUG 级别才能看到 SQL 语句） -->
+        <logger name="com.liwx.learning.mapper" level="DEBUG"/>
+    </springProfile>
 
-    <!-- MyBatis 的 SQL 日志（DEBUG 级别才能看到 SQL 语句）-->
-    <logger name="com.liwx.learning.mapper" level="DEBUG"/>
+    <!-- 线上环境：INFO 级别，控制台+文件都打，不打 DEBUG -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>   <!-- 同时输出到控制台（Docker 的 docker logs 靠这个） -->
+            <appender-ref ref="FILE"/>      <!-- 同时输出到日志文件 -->
+            <appender-ref ref="ERROR_FILE"/> <!-- 同时输出到错误日志文件 -->
+        </root>
+        <!-- 线上不需要 DEBUG，INFO 就够 -->
+        <logger name="com.liwx.learning" level="INFO"/>
+        <logger name="com.liwx.learning.mapper" level="INFO"/>
+    </springProfile>
 
 </configuration>
