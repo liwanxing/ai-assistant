@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!--
+        Logback 配置文件
+        Spring Boot 启动时自动扫描 classpath:logback-spring.xml
+
+        为什么不用引依赖？
+          Spring Boot 的 starter 默认就带着 Logback，不用额外加依赖。
+          不配这个文件，日志也能打印，只是默认只打到控制台。
+          @Slf4j 注解只是帮你省了一行 Logger 定义代码。
+          这个文件的作用就是改默认行为：指定输出路径、格式、级别，让日志按你的要求来。
+    -->
+
+    <!-- ====== 属性变量，下面引用 ====== -->
+    <property name="LOG_PATH" value="logs"/>
+    <property name="APP_NAME" value="liwx-learning"/>
+    <!-- 日志格式：时间 级别 线程 类名 行号 - 消息 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
+
+    <!-- ====== 1. 控制台输出（带颜色）====== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- 控制台用彩色格式，方便开发时看 -->
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) %cyan(%logger{36}) - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ====== 2. 文件输出（按天滚动）====== -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当前日志文件路径 -->
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <!-- 滚动策略：按天切，最多保留 30 天 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 文件名格式：liwx-learning.2026-08-09.log -->
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ====== 3. 错误日志单独存一个文件 ====== -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <!-- 过滤器：只接受 ERROR 级别 -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ====== 日志级别配置 ====== -->
+    <!-- 根级别：所有包默认 INFO -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+    <!-- 自己项目的包设成 DEBUG，开发时能看到更详细的日志 -->
+    <logger name="com.liwx.learning" level="DEBUG"/>
+
+    <!-- MyBatis 的 SQL 日志（DEBUG 级别才能看到 SQL 语句）-->
+    <logger name="com.liwx.learning.mapper" level="DEBUG"/>
+
+</configuration>
