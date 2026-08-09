@@ -1,0 +1,124 @@
+### ========== 登录（3个用户） ==========
+
+### 登录 admin（管理员）
+GET http://localhost:8080/login?username=admin&password=123456
+
+> {%
+    client.global.set("admin_token", response.body.data.tokenValue);
+%}
+
+### 登录 zhangsan（编辑者）
+GET http://localhost:8080/login?username=zhangsan&password=123456
+
+> {%
+    client.global.set("zhangsan_token", response.body.data.tokenValue);
+%}
+
+### 登录 lisi（访客）
+GET http://localhost:8080/login?username=lisi&password=123456
+
+> {%
+    client.global.set("lisi_token", response.body.data.tokenValue);
+%}
+
+### 登录错误密码（应该 401）
+GET http://localhost:8080/login?username=admin&password=wrong
+
+
+### ========== 查询用户（需要 user:list 权限） ==========
+
+### admin 查询所有用户（应该成功，有 user:list）
+GET http://localhost:8080/users?satoken={{admin_token}}
+
+### zhangsan 查询所有用户（应该成功，有 user:list）
+GET http://localhost:8080/users?satoken={{zhangsan_token}}
+
+### lisi 查询所有用户（应该成功，有 user:list）
+GET http://localhost:8080/users?satoken={{lisi_token}}
+
+
+### ========== 创建用户（需要 user:add 权限） ==========
+
+### admin 创建用户（应该成功，有 user:add）
+POST http://localhost:8080/users?satoken={{admin_token}}
+Content-Type: application/json
+
+{
+  "username": "wangwu",
+  "password": "123456",
+  "nickname": "王五",
+  "email": "wangwu@test.com"
+}
+
+### zhangsan 创建用户（应该成功，有 user:add）
+POST http://localhost:8080/users?satoken={{zhangsan_token}}
+Content-Type: application/json
+
+{
+  "username": "zhaoliu",
+  "password": "123456",
+  "nickname": "赵六",
+  "email": "zhaoliu@test.com"
+}
+
+### lisi 创建用户（应该 403，没有 user:add 权限）
+POST http://localhost:8080/users?satoken={{lisi_token}}
+Content-Type: application/json
+
+{
+  "username": "nochange",
+  "password": "123456",
+  "nickname": "无权限",
+  "email": "no@test.com"
+}
+
+
+### ========== 更新用户（需要 user:edit 权限） ==========
+
+### admin 更新用户（应该成功，有 user:edit）
+PUT http://localhost:8080/users/1?satoken={{admin_token}}
+Content-Type: application/json
+
+{
+  "nickname": "超级管理员",
+  "email": "admin@test.com"
+}
+
+### zhangsan 更新用户（应该成功，有 user:edit）
+PUT http://localhost:8080/users/1?satoken={{zhangsan_token}}
+Content-Type: application/json
+
+{
+  "nickname": "管理员",
+  "email": "admin@test.com"
+}
+
+### lisi 更新用户（应该 403，没有 user:edit 权限）
+PUT http://localhost:8080/users/1?satoken={{lisi_token}}
+Content-Type: application/json
+
+{
+  "nickname": "访客改名",
+  "email": "admin@test.com"
+}
+
+
+### ========== 删除用户（需要 admin 角色 + user:delete 权限） ==========
+
+### admin 删除用户（应该成功，有 admin 角色 + user:delete 权限）
+DELETE http://localhost:8080/users/4?satoken={{admin_token}}
+
+### zhangsan 删除用户（应该 403，没有 user:delete 权限，也没有 admin 角色）
+DELETE http://localhost:8080/users/4?satoken={{zhangsan_token}}
+
+### lisi 删除用户（应该 403，没有 user:delete 权限，也没有 admin 角色）
+DELETE http://localhost:8080/users/4?satoken={{lisi_token}}
+
+
+### ========== 登出 ==========
+
+### admin 登出
+GET http://localhost:8080/logout?satoken={{admin_token}}
+
+### 登出后再访问（应该 401 未登录）
+GET http://localhost:8080/users?satoken={{admin_token}}

@@ -2,6 +2,8 @@ package com.liwx.learning.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
+import com.liwx.learning.entity.User;
+import com.liwx.learning.mapper.UserMapper;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,23 +25,34 @@ import java.util.Map;
 @RestController
 public class AuthController {
 
+    private final UserMapper userMapper;
+
+    public AuthController(UserMapper userMapper) {
+        this.userMapper = userMapper;
+    }
+
     /**
-     * 登录：验证账号密码，成功后 Sa-Token 自动生成 token
-     * 登录后调用 StpUtil.getTokenValue() 就能拿到当前会话的 token
+     * 登录：查数据库验证账号密码，成功后 Sa-Token 自动生成 token
      */
     @GetMapping("/login")
     public Result<Map<String, String>> login(@RequestParam String username, @RequestParam String password) {
-        // 暂时写死账号密码，后面接数据库
-        if ("admin".equals(username) && "123456".equals(password)) {
-            // Sa-Token 登录：传入用户ID，框架自动生成 token
-            StpUtil.login(1L);
-            // 登录后可以拿到 token
-            Map<String, String> data = new HashMap<>();
-            data.put("tokenName", StpUtil.getTokenName());
-            data.put("tokenValue", StpUtil.getTokenValue());
-            return Result.success(data);
+        // 1. 查数据库：根据用户名找用户
+        User user = userMapper.selectByUsername(username);
+        // 2. 用户不存在或密码不对
+        if (user == null || !user.getPassword().equals(password)) {
+            return Result.error(401, "账号或密码错误");
         }
-        return Result.error(401, "账号或密码错误");
+        // 3. 账号被禁用
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            return Result.error(403, "账号已被禁用");
+        }
+        // 4. Sa-Token 登录：传入用户ID，框架自动生成 token
+        StpUtil.login(user.getId());
+        // 5. 返回 token 给前端
+        Map<String, String> data = new HashMap<>();
+        data.put("tokenName", StpUtil.getTokenName());
+        data.put("tokenValue", StpUtil.getTokenValue());
+        return Result.success(data);
     }
 
     /**

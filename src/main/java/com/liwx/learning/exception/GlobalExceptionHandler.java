@@ -1,6 +1,8 @@
 package com.liwx.learning.exception;
 
 import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.exception.NotPermissionException;
+import cn.dev33.satoken.exception.NotRoleException;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.common.ResultCode;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +59,26 @@ public class GlobalExceptionHandler {
     public Result<Void> handleNotLoginException(NotLoginException e) {
         log.warn("未登录访问: {}", e.getMessage());
         return Result.error(401, "未登录或登录已过期，请重新登录");
+    }
+
+    /**
+     * 捕获 Sa-Token 角色不匹配异常（@SaCheckRole 校验未通过时抛出）
+     * 比如普通用户去调用了标了 @SaCheckRole("admin") 的接口
+     */
+    @ExceptionHandler(NotRoleException.class)
+    public Result<Void> handleNotRoleException(NotRoleException e) {
+        log.warn("角色不足: 需要角色={}, {}", e.getRole(), e.getMessage());
+        return Result.error(403, "权限不足，需要角色: " + e.getRole());
+    }
+
+    /**
+     * 捕获 Sa-Token 权限不匹配异常（@SaCheckPermission 校验未通过时抛出）
+     * 比如访客去调用了标了 @SaCheckPermission("user:delete") 的接口
+     */
+    @ExceptionHandler(NotPermissionException.class)
+    public Result<Void> handleNotPermissionException(NotPermissionException e) {
+        log.warn("权限不足: 需要权限={}, {}", e.getCode(), e.getMessage());
+        return Result.error(403, "权限不足，需要权限: " + e.getCode());
     }
 
     /**

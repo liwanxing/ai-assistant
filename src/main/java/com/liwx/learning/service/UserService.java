@@ -2,6 +2,8 @@ package com.liwx.learning.service;
 
 import com.liwx.learning.common.Assert;
 import com.liwx.learning.common.ResultCode;
+import com.liwx.learning.dto.UserCreateDTO;
+import com.liwx.learning.dto.UserUpdateDTO;
 import com.liwx.learning.entity.User;
 import com.liwx.learning.mapper.UserMapper;
 import org.springframework.stereotype.Service;
@@ -27,16 +29,24 @@ public class UserService {
         return user;
     }
 
-    public User createUser(User user) {
+    public User createUser(UserCreateDTO dto) {
+        User user = new User();
+        user.setUsername(dto.getUsername());
+        user.setPassword(dto.getPassword());
+        user.setNickname(dto.getNickname());
+        user.setEmail(dto.getEmail());
+        user.setPhone(dto.getPhone());
         userMapper.insert(user);
         return user;
     }
 
-    public User updateUser(Long id, User user) {
+    public User updateUser(Long id, UserUpdateDTO dto) {
         User existing = userMapper.selectById(id);
         Assert.notNull(existing, ResultCode.NOT_FOUND);
-        user.setId(id);
-        userMapper.update(user);
+        existing.setNickname(dto.getNickname());
+        existing.setEmail(dto.getEmail());
+        existing.setPhone(dto.getPhone());
+        userMapper.update(existing);
         return userMapper.selectById(id);
     }
 
