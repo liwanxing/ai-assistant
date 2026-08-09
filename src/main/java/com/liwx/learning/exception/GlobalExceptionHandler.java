@@ -1,5 +1,6 @@
 package com.liwx.learning.exception;
 
+import cn.dev33.satoken.exception.NotLoginException;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.common.ResultCode;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,15 @@ public class GlobalExceptionHandler {
         String message = fieldError != null ? fieldError.getDefaultMessage() : "参数错误";
         log.warn("参数校验失败: {}", message);
         return Result.error(ResultCode.PARAM_ERROR.getCode(), message);
+    }
+
+    /**
+     * 捕获 Sa-Token 未登录异常（拦截器校验未通过时抛出）
+     */
+    @ExceptionHandler(NotLoginException.class)
+    public Result<Void> handleNotLoginException(NotLoginException e) {
+        log.warn("未登录访问: {}", e.getMessage());
+        return Result.error(401, "未登录或登录已过期，请重新登录");
     }
 
     /**
