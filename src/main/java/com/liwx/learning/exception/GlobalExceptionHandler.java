@@ -3,12 +3,26 @@ package com.liwx.learning.exception;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.common.ResultCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * 全局异常处理器：统一捕获所有 Controller 抛出的异常
  * 避免异常信息直接暴露给前端，统一返回 Result 格式
+ *
+ * Spring 源码调用链路（DispatcherServlet 为核心）：
+ *   1. DispatcherServlet.doDispatch() 调用 Controller 方法，外面包了 try-catch
+ *   2. Controller 调 Service，Service 抛 BusinessException，Controller 没有 try-catch，异常透传
+ *   3. doDispatch 的 catch 接住异常，存入 dispatchException
+ *   4. processDispatchResult() 发现 dispatchException 不为 null，调用 processHandlerException()
+ *   5. processHandlerException 遍历 HandlerExceptionResolver 列表
+ *   6. ExceptionHandlerExceptionResolver 按异常类型匹配 @ExceptionHandler 方法
+ *   7. 匹配到后反射调用本类的 handleBusinessException()，返回 Result 给前端
+ *
+ * 简单理解：框架在调你的 Controller 时包了一层 try-catch，
+ *         异常没被 Controller 接住就被框架接住，交给这里的 @ExceptionHandler 统一处理
  */
 @Slf4j
 @RestControllerAdvice
@@ -24,7 +38,28 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 捕获参数校验异常（@Valid 校验失败时自动抛出）
+     * 取第一条校验错误信息返回给前端
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String message = fieldError != null ? fieldError.getDefaultMessage() : "参数错误";
+        log.warn("参数校验失败: {}", message);
+        return Result.error(ResultCode.PARAM_ERROR.getCode(), message);
+    }
+
+    /**
      * 捕获所有其他未处理的异常（兜底）
+     *
+     * 没有这个方法时，Spring 也有默认兜底，返回格式：
+     *   {timestamp, status, error, message, path} 甚至 HTML 错误页
+     * 这里覆盖它，统一返回 {code, message, data}
+     *
+     * 注意：以上兜底仅限"同一个系统内"（同一个 DispatcherServlet）
+     * 跨系统调用（RestTemplate 等调别人接口）时，对方的兜底格式你管不着，
+     * 你收到的只是 HTTP 响应（200 正常 / 4xx 5xx 错误）
+     * 你的 HTTP 客户端遇到 4xx 5xx 会自己抛异常，所以调用方要自己 try-catch
      */
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {

@@ -3,6 +3,7 @@ package com.liwx.learning.controller;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.entity.User;
 import com.liwx.learning.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,13 +32,13 @@ public class UserController {
 
     // POST /users - 创建用户
     @PostMapping
-    public Result<User> createUser(@RequestBody User user) {
+    public Result<User> createUser(@Valid @RequestBody User user) {
         return Result.success(userService.createUser(user));
     }
 
     // PUT /users/{id} - 更新用户
     @PutMapping("/{id}")
-    public Result<User> updateUser(@PathVariable Long id, @RequestBody User user) {
+    public Result<User> updateUser(@PathVariable Long id, @Valid @RequestBody User user) {
         return Result.success(userService.updateUser(id, user));
     }
 
