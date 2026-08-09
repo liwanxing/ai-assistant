@@ -10,7 +10,7 @@ services:
       MYSQL_DATABASE: liwx_learning
     volumes:
       - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --character-set-client-handshake=FALSE
 
   # Redis cache (Sa-Token token storage)
   redis:
