@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: liwanxing-learning-projects
+
+  # 环境配置：dev 开发 / prod 线上
+  # 开发时默认 dev，线上启动时加 --spring.profiles.active=prod 覆盖
+  profiles:
+    active: dev
+
+  # MySQL 数据源
+  datasource:
+    url: jdbc:mysql://localhost:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # Redis（Sa-Token 的 token 存到这里）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 123456
+
+# Sa-Token 配置
+sa-token:
+  token-name: satoken
+  timeout: 2592000        # token 有效期 30 天（秒）
+  is-concurrent: true      # 允许同一账号多设备同时登录
+  is-share: false          # 不同设备生成不同的 token
+
+# MyBatis 配置
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.liwx.learning.entity
+  configuration:
+    map-underscore-to-camel-case: true

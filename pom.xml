@@ -54,6 +54,19 @@
 			<version>1.45.0</version>
 		</dependency>
 
+		<!-- Sa-Token Redis 集成（把 token 从内存存到 Redis，重启不丢失） -->
+		<dependency>
+			<groupId>cn.dev33</groupId>
+			<artifactId>sa-token-redis-jackson</artifactId>
+			<version>1.45.0</version>
+		</dependency>
+
+		<!-- Spring Data Redis（Redis 客户端，sa-token-redis-jackson 依赖它） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>
 			<artifactId>mybatis-spring-boot-starter</artifactId>
