@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 
@@ -8,8 +7,7 @@ import request from '../utils/request'
 // 数据定义（类似后端的 Service 层变量）
 // ──────────────────────────────────────
 
-const router = useRouter()
-
+// 注：退出登录已移到 MainLayout 头部，这里只管用户增删改查
 // 用户列表（表格展示的数据源）
 const userList = ref([])
 // 表格加载状态
@@ -113,18 +111,6 @@ const handleDelete = (row) => {
   }).catch(() => {})
 }
 
-// 退出登录：调后端 /logout 销毁 token，然后清前端 token 跳登录页
-const handleLogout = async () => {
-  try {
-    await request.get('/logout')
-  } catch {
-    // 即使后端报错，也要清前端 token（防止token残留）
-  } finally {
-    localStorage.removeItem('satoken')
-    router.push('/login')
-  }
-}
-
 // 页面加载时自动查询用户列表（类似后端的 @PostConstruct）
 onMounted(() => {
   loadUsers()
@@ -134,9 +120,8 @@ onMounted(() => {
 <template>
   <div style="padding: 20px;">
     <!-- 顶部操作栏 -->
-    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+    <div style="margin-bottom: 20px;">
       <el-button type="primary" @click="handleAdd">新增用户</el-button>
-      <el-button type="danger" @click="handleLogout">退出登录</el-button>
     </div>
 
     <!-- 用户表格 -->
