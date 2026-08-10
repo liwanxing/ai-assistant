@@ -7,6 +7,8 @@
 - Spring Boot 4.0.7 + Java 21
 - MyBatis + MySQL 8.0
 - Sa-Token 认证授权 + Redis 存储
+- Spring AI + 通义 DashScope（Chat + Embedding）
+- Milvus 2.4 向量数据库（RAG 检索增强生成）
 - AOP 日志切面 + Logback 多环境日志
 - Docker + Docker Compose 容器化部署
 
@@ -53,27 +55,31 @@ docker compose logs -f app
 
 ```
 src/main/java/com/liwx/learning/
-├── config/          # Sa-Token 路由拦截配置
-├── controller/       # 控制器（Hello、Auth、User）
-├── service/          # 业务逻辑层
-├── mapper/           # MyBatis 数据访问层
-├── entity/           # 实体类
-├── dto/              # 数据传输对象（请求/响应 DTO）
-├── aspect/           # AOP 日志切面
-├── exception/        # 全局异常处理
-└── LearningApplication.java  # 启动类
+├── aspect/              # AOP 日志切面
+├── common/              # 通用工具（Result 统一响应、Assert 断言、ResultCode）
+├── config/              # Sa-Token 路由拦截 + 权限接口实现
+├── exception/           # 全局异常处理（BusinessException + GlobalExceptionHandler）
+├── rag/                 # RAG 模块（Spring AI + 向量检索）
+│   └── controller/      # AI 测试接口
+├── user/                # 用户模块（RBAC 权限模型）
+│   ├── controller/      # 认证 + 用户增删改查
+│   ├── service/         # 业务逻辑层
+│   ├── mapper/          # MyBatis 数据访问层
+│   ├── entity/          # 实体类
+│   └── dto/             # 请求 DTO（CreateDTO / UpdateDTO）
+└── LiwanxingLearningProjectsApplication.java  # 启动类
 
 src/main/resources/
-├── application.yml   # 配置文件（含 dev/prod profile）
-├── logback-spring.xml    # 日志配置（多环境）
-└── mapper/           # MyBatis XML 映射文件
+├── application.yml      # 配置文件（含 Spring AI、Milvus、MySQL、Redis 配置）
+├── logback-spring.xml   # 日志配置（多环境）
+└── mapper/              # MyBatis XML 映射文件
 
 sql/
-└── rbac.sql          # 建表 + 初始化数据脚本
+└── rbac.sql             # 建表 + 初始化数据脚本（RBAC 五表）
 
-Dockerfile            # 应用镜像构建文件
-docker-compose.yml    # 本地开发环境配置（MySQL + Redis）
-docker-compose.prod.yml # 预发/线上环境配置（全部服务容器化）
+Dockerfile               # 应用镜像构建文件
+docker-compose.yml       # 本地开发环境（MySQL + Redis + Milvus 三件套）
+docker-compose.prod.yml  # 预发/线上环境（全部服务容器化）
 ```
 
 ## 本地开发
@@ -205,13 +211,16 @@ docker compose -f docker-compose.prod.yml up -d
 frontend 容器（Nginx + 静态文件）
   ↓ /api 开头请求
 app 容器（Spring Boot 应用）
-  ↓ 读写数据库
-mysql 容器（MySQL 8.0）
-  ↓ 存储 Token
-redis 容器（Redis 7）
+  ├── 读写数据库 → mysql 容器（MySQL 8.0）
+  ├── 存储 Token → redis 容器（Redis 7）
+  └── 向量检索   → milvus-standalone 容器（Milvus 2.4）
+                      ├── etcd（元数据存储）
+                      └── minio（数据文件存储）
 ```
 
-所有服务通过 Docker Compose 一键编排，容器间通过服务名互相访问（如 `app`、`mysql`、`redis`），不用关心容器内部 IP。
+所有服务通过 Docker Compose 一键编排，容器间通过服务名互相访问（如 `app`、`mysql`、`redis`、`milvus-standalone`），不用关心容器内部 IP。
+
+> Milvus 三件套：milvus-standalone（检索引擎）+ etcd（元数据）+ minio（对象存储），后两个是内部依赖，不用直接操作。
 
 ## 常见问题
 

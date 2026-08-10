@@ -88,6 +88,13 @@
 			<artifactId>spring-ai-starter-model-openai</artifactId>
 		</dependency>
 
+		<!-- Spring AI Milvus 向量存储：提供 VectorStore 自动配置，自动连接 Milvus -->
+		<!-- 加了它，Spring Boot 启动时就会创建 MilvusVectorStore Bean，你在代码里直接注入就能用 -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-vector-store-milvus</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>
 			<artifactId>mybatis-spring-boot-starter</artifactId>

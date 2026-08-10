@@ -73,6 +73,79 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ==========================================================================
+  # Milvus 2.4 向量数据库（RAG 模块用，存向量 + chunk 原文）
+  # ==========================================================================
+  # Milvus standalone 是"三件套"：milvus（检索引擎）+ etcd（元数据）+ minio（数据存储）
+  # milvus 只管运算，数据存 minio，配置存 etcd；etcd/minio 是内部依赖，不用直接操作
+  milvus-standalone:
+    image: milvusdb/milvus:v2.4.6
+    container_name: milvus-standalone
+    command: ["milvus", "run", "standalone"]
+    ports:
+      - "19530:19530"   # gRPC 端口，Spring AI 通过这个连 Milvus
+      - "9091:9091"     # 健康检查 / metrics 端口
+    environment:
+      ETCD_ENDPOINTS: etcd:2379        # 告诉 milvus 去 etcd:2379 读元数据
+      MINIO_ADDRESS: minio:9000        # 告诉 milvus 去 minio:9000 读写数据
+      TZ: Asia/Shanghai
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy      # 等 etcd 真正就绪再启动
+      minio:
+        condition: service_healthy      # 等 minio 真正就绪再启动
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s   # Milvus 启动较慢，给 90 秒预热（这期间失败不计入 retries）
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # etcd：键值存储，存 Milvus 的元数据（有哪些 collection、schema 定义等）
+  # Milvus 的内部依赖，你不用直接操作它
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: milvus-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+      - TZ=Asia/Shanghai
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # minio：对象存储（简化版 S3），存 Milvus 的向量数据文件
+  # Milvus 的内部依赖，你不用直接操作它
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: milvus-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      TZ: Asia/Shanghai
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
 # ===========================================================================
 # 命名卷：由 Docker 管理，存在 Docker 默认数据目录里
 #   - docker compose down       → 容器删除，卷保留（数据还在）
@@ -81,3 +154,6 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  milvus_data:
+  etcd_data:
+  minio_data:

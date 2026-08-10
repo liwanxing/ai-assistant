@@ -15,6 +15,17 @@ spring:
       base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
       chat:
         model: qwen-plus            # 通义对话模型
+      embedding:
+        model: text-embedding-v3    # 通义向量模型，把文本转成向量（1024维）
+    # Milvus 向量数据库（Spring AI 自动读取这个配置连 Milvus）
+    # 本地运行时连 localhost，Docker 容器里用环境变量覆盖成服务名 milvus-standalone
+    vectorstore:
+      milvus:
+        host: localhost
+        port: 19530
+        database-name: default
+        collection-name: "rag_docs"   # collection 名字，类似 MySQL 的表名
+        dimension: 1024               # 向量维度，text-embedding-v3 实际输出 1024 维
 
   # MySQL 数据源
   datasource:
