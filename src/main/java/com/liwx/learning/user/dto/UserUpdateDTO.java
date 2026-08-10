@@ -1,4 +1,4 @@
-package com.liwx.learning.dto;
+package com.liwx.learning.user.dto;
 
 import jakarta.validation.constraints.Email;
 import lombok.Data;

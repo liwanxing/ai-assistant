@@ -20,6 +20,6 @@ public class SaTokenConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkLogin()))
                 .addPathPatterns("/**")           // 拦截所有路径
-                .excludePathPatterns("/login", "/hello", "/ai/test");  // 这些路径不需要登录
+                .excludePathPatterns("/login", "/ai/test");  // 这些路径不需要登录
     }
 }

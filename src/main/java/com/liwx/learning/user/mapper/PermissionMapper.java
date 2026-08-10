@@ -1,4 +1,4 @@
-package com.liwx.learning.mapper;
+package com.liwx.learning.user.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;

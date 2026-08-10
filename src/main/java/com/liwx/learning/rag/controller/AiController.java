@@ -1,4 +1,4 @@
-package com.liwx.learning.controller;
+package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.Result;
 import org.springframework.ai.chat.client.ChatClient;

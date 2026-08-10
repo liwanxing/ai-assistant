@@ -1,11 +1,11 @@
-package com.liwx.learning.service;
+package com.liwx.learning.user.service;
 
 import com.liwx.learning.common.Assert;
 import com.liwx.learning.common.ResultCode;
-import com.liwx.learning.dto.UserCreateDTO;
-import com.liwx.learning.dto.UserUpdateDTO;
-import com.liwx.learning.entity.User;
-import com.liwx.learning.mapper.UserMapper;
+import com.liwx.learning.user.dto.UserCreateDTO;
+import com.liwx.learning.user.dto.UserUpdateDTO;
+import com.liwx.learning.user.entity.User;
+import com.liwx.learning.user.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.List;

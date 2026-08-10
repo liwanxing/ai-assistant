@@ -1,7 +1,7 @@
 package com.liwx.learning.config;
 
 import cn.dev33.satoken.stp.StpInterface;
-import com.liwx.learning.mapper.PermissionMapper;
+import com.liwx.learning.user.mapper.PermissionMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

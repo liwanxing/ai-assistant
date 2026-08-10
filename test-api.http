@@ -122,3 +122,15 @@ GET http://localhost:8080/logout?satoken={{admin_token}}
 
 ### 登出后再访问（应该 401 未登录）
 GET http://localhost:8080/users?satoken={{admin_token}}
+
+
+### ========== RAG / AI 测试 ==========
+
+### AI 对话测试（通义 qwen-plus）— 中文
+GET http://localhost:8080/ai/test?question=你好
+
+### AI 对话测试 — 英文（排查中文编码问题）
+GET http://localhost:8080/ai/test?question=hello
+
+
+

@@ -1,12 +1,12 @@
-package com.liwx.learning.controller;
+package com.liwx.learning.user.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.liwx.learning.common.Result;
-import com.liwx.learning.dto.UserCreateDTO;
-import com.liwx.learning.dto.UserUpdateDTO;
-import com.liwx.learning.entity.User;
-import com.liwx.learning.service.UserService;
+import com.liwx.learning.user.dto.UserCreateDTO;
+import com.liwx.learning.user.dto.UserUpdateDTO;
+import com.liwx.learning.user.entity.User;
+import com.liwx.learning.user.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 

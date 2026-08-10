@@ -1,6 +1,6 @@
-package com.liwx.learning.mapper;
+package com.liwx.learning.user.mapper;
 
-import com.liwx.learning.entity.User;
+import com.liwx.learning.user.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

@@ -1,9 +1,9 @@
-package com.liwx.learning.controller;
+package com.liwx.learning.user.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
-import com.liwx.learning.entity.User;
-import com.liwx.learning.mapper.UserMapper;
+import com.liwx.learning.user.entity.User;
+import com.liwx.learning.user.mapper.UserMapper;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;

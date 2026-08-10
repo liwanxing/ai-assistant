@@ -41,6 +41,6 @@ sa-token:
 # MyBatis 配置
 mybatis:
   mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.liwx.learning.entity
+  type-aliases-package: com.liwx.learning.user.entity
   configuration:
     map-underscore-to-camel-case: true

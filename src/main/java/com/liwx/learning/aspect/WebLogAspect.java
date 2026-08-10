@@ -29,10 +29,10 @@ public class WebLogAspect {
      * 环绕通知：包住目标方法，前面记开始时间，后面记耗时和返回值
      *
      * 切点表达式解释：
-     *   execution(* com.liwx.learning.controller..*.*(..))
-     *   → com.liwx.learning.controller 包及子包下的所有类的所有方法
+     *   execution(* com.liwx.learning..controller..*.*(..))
+     *   → 任意模块（user/rag/...）下 controller 包的所有类的所有方法
      */
-    @Around("execution(* com.liwx.learning.controller..*.*(..))")
+    @Around("execution(* com.liwx.learning..controller..*.*(..))")
     public Object logAround(ProceedingJoinPoint joinPoint) throws Throwable {
         // 方法执行前：记录方法名和参数
         String methodName = joinPoint.getSignature().toShortString();
