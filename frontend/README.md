@@ -76,12 +76,13 @@ frontend/
   - 前端请求 `/api/user/list` → 后端收到 `/user/list`
   - `rewrite` 去掉 `/api` 前缀，后端不需要感知前端用了代理
 
-### 部署时（后续添加）
+### 部署时（Docker + Nginx）
 
-- `npm run build` 生成静态文件到 `dist/`
-- 用 Nginx 容器托管静态文件
-- Nginx 反向代理 `/api` 到后端容器
-- 加到 `docker-compose.yml` 统一编排
+- **Nginx 容器托管**：`npm run build` 生成静态文件，Nginx 容器托管 `dist/`
+- **Nginx 反向代理**：`/api` 请求转发到 `app:8080/`（自动去掉 `/api` 前缀）
+- **Docker Compose 统一编排**：前端服务在 `docker-compose.yml` 中定义，与后端、数据库统一管理
+
+详细部署流程见项目根目录 [README.md](../README.md#前端容器化部署)。
 
 ## 概念说明
 

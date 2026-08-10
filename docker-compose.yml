@@ -36,3 +36,16 @@ services:
       - SPRING_DATASOURCE_PASSWORD=123456
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PASSWORD=123456
+
+  # Frontend (Nginx + Vue static files)
+  # 多阶段构建：Docker 内部执行 npm run build，用 Nginx 托管静态文件
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: liwanxing-learning-projects-frontend:latest
+    container_name: frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      - app

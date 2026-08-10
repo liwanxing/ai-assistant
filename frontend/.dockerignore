@@ -1,0 +1,7 @@
+# Docker 构建时忽略这些文件，不复制到构建上下文
+# 跟 .gitignore 类似，减少构建上下文体积、加速构建
+
+node_modules
+dist
+.git
+*.md
