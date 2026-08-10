@@ -31,6 +31,15 @@ const fetchDocuments = async () => {
 const uploading = ref(false)
 const fileInputRef = ref(null)
 
+// 切分方式：token = 按 token 数量硬切，paragraph = 按段落切分
+const splitStrategy = ref('semantic')
+
+const strategyOptions = [
+  { label: '语义切分', value: 'semantic' },
+  { label: '段落切分', value: 'paragraph' },
+  { label: 'Token切分', value: 'token' },
+]
+
 const triggerFileSelect = () => {
   fileInputRef.value.click()
 }
@@ -43,6 +52,7 @@ const handleFileChange = async (event) => {
   try {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('splitStrategy', splitStrategy.value)
     await request.post('/rag/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
@@ -119,9 +129,17 @@ onMounted(() => {
       <el-button type="primary" :icon="Upload" :loading="uploading" @click="triggerFileSelect">
         上传文档
       </el-button>
+      <el-select v-model="splitStrategy" style="width: 130px; margin-left: 12px;" size="default">
+        <el-option
+          v-for="opt in strategyOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
+      </el-select>
       <el-button :icon="Refresh" @click="fetchDocuments">刷新</el-button>
       <span style="margin-left: 12px; color: #999; font-size: 13px;">
-        支持 .txt、.pdf 文件，上传后自动切分并存入向量库
+        语义切分效果最好但最慢，段落切分兼顾速度与语义，Token切分最快
       </span>
     </div>
 

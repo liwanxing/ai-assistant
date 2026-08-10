@@ -60,7 +60,9 @@ public class RagController {
      * - 新：上传后立即返回"处理中"，后台异步处理，前端轮询状态
      */
     @PostMapping("/upload")
-    public Result<Map<String, Object>> upload(@RequestParam("file") MultipartFile file) throws Exception {
+    public Result<Map<String, Object>> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "splitStrategy", defaultValue = "token") String splitStrategy) throws Exception {
         // 1. 保存文件到本地 uploads/ 目录
         // 用 UUID 重命名防止同名文件覆盖
         // 必须用绝对路径：transferTo 传相对路径时，Tomcat 会解析到自己的临时目录下
@@ -83,7 +85,7 @@ public class RagController {
         ragDocumentMapper.insert(doc);
 
         // 3. 异步处理：Tika 读取 → 切分 → 向量化 → 存 Milvus（不阻塞当前请求）
-        ragService.processDocument(doc.getId(), dest.toString());
+        ragService.processDocument(doc.getId(), dest.toString(), splitStrategy);
 
         // 4. 立即返回，不等处理完
         return Result.success(Map.of("documentId", doc.getId(), "status", "PROCESSING"));

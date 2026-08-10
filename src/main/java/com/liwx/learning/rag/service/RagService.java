@@ -5,6 +5,7 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -34,10 +35,12 @@ public class RagService {
 
     private final RagDocumentMapper ragDocumentMapper;
     private final VectorStore vectorStore;
+    private final EmbeddingModel embeddingModel;
 
-    public RagService(RagDocumentMapper ragDocumentMapper, VectorStore vectorStore) {
+    public RagService(RagDocumentMapper ragDocumentMapper, VectorStore vectorStore, EmbeddingModel embeddingModel) {
         this.ragDocumentMapper = ragDocumentMapper;
         this.vectorStore = vectorStore;
+        this.embeddingModel = embeddingModel;
     }
 
     /**
@@ -47,19 +50,28 @@ public class RagService {
      * 为什么要自定义 ID：Spring AI 默认给每个 chunk 生成随机 UUID，
      * 和 MySQL 的 documentId 没有关联，删除文档时无法定位 Milvus 里的 chunk。
      * 用 doc{documentId}_{index} 后，删除时可以精确构造 ID 列表批量删除。
+     *
+     * @param splitStrategy 切分策略：token = 按 token 数量硬切，paragraph = 先按段落分再合并
      */
     @Async
-    public void processDocument(Long documentId, String filePath) {
+    public void processDocument(Long documentId, String filePath, String splitStrategy) {
         try {
-            log.info("开始处理文档, documentId={}", documentId);
+            log.info("开始处理文档, documentId={}, splitStrategy={}", documentId, splitStrategy);
 
             // 1. Tika 读取文件内容（自动识别 PDF/Word/txt 格式）
             TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
             List<Document> documents = reader.get();
 
-            // 2. 切分成 chunk
-            TokenTextSplitter splitter = TokenTextSplitter.builder().build();
-            List<Document> chunks = splitter.apply(documents);
+            // 2. 根据策略切分
+            List<Document> chunks;
+            if ("semantic".equals(splitStrategy)) {
+                chunks = splitBySemantic(documents);
+            } else if ("paragraph".equals(splitStrategy)) {
+                chunks = splitByParagraph(documents);
+            } else {
+                TokenTextSplitter splitter = TokenTextSplitter.builder().build();
+                chunks = splitter.apply(documents);
+            }
 
             // 3. 给每个 chunk 设置自定义 ID，关联 documentId
             // 格式：doc{documentId}_{index}，删除文档时按这个规则构造 ID 列表
@@ -74,8 +86,12 @@ public class RagService {
                 namedChunks.add(named);
             }
 
-            // 4. 向量化并存入 Milvus（VectorStore 内部调 EmbeddingModel）
-            vectorStore.add(namedChunks);
+            // 4. 分批向量化并存入 Milvus（通义 API 每次最多 10 条，Spring AI 内部也会调 embedding）
+            int batchSize = 10;
+            for (int i = 0; i < namedChunks.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, namedChunks.size());
+                vectorStore.add(namedChunks.subList(i, end));
+            }
 
             // 5. 更新状态为成功
             ragDocumentMapper.updateStatus(documentId, "SUCCESS", namedChunks.size(), null);
@@ -114,5 +130,167 @@ public class RagService {
         // 3. 软删除 MySQL 记录
         ragDocumentMapper.deleteById(documentId);
         log.info("文档已删除, documentId={}", documentId);
+    }
+
+    /**
+     * 段落切分：先按换行分段，再把相邻小段合并到不超过 token 上限
+     * <p>
+     * 和 TokenTextSplitter 的区别：
+     * - Token 硬切：到 token 数就断，可能切断句子（如"审批流|程是"）
+     * - 段落切分：以换行为天然边界，保持每个 chunk 语义完整
+     * <p>
+     * 适用场景：规章制度、合同条款等有明确段落结构的文档
+     */
+    private List<Document> splitByParagraph(List<Document> documents) {
+        List<Document> result = new ArrayList<>();
+        // 每个 chunk 最多 500 token（Spring AI 默认约 800，段落切分保守一点）
+        int maxTokens = 500;
+
+        for (Document doc : documents) {
+            String text = doc.getText();
+            // 按双换行（空行）分段，这是最常见的段落分隔方式
+            String[] paragraphs = text.split("\\n\\s*\\n");
+
+            StringBuilder currentChunk = new StringBuilder();
+            int currentTokens = 0;
+
+            for (String paragraph : paragraphs) {
+                String trimmed = paragraph.trim();
+                if (trimmed.isEmpty()) continue;
+
+                // 粗略估算 token 数：中文约 1 字 = 2 token，英文约 1 词 = 1.3 token
+                int paraTokens = trimmed.length() * 2;
+
+                // 如果当前 chunk 加上这段会超限，先保存当前 chunk，再开新的
+                if (currentTokens + paraTokens > maxTokens && currentChunk.length() > 0) {
+                    result.add(Document.builder()
+                            .text(currentChunk.toString().trim())
+                            .metadata(doc.getMetadata())
+                            .build());
+                    currentChunk = new StringBuilder();
+                    currentTokens = 0;
+                }
+
+                currentChunk.append(trimmed).append("\n\n");
+                currentTokens += paraTokens;
+            }
+
+            // 最后一个 chunk
+            if (currentChunk.length() > 0) {
+                result.add(Document.builder()
+                        .text(currentChunk.toString().trim())
+                        .metadata(doc.getMetadata())
+                        .build());
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 语义切分：把文本拆成句子，用 embedding 计算相邻句子的语义相似度，相似度骤降处切开
+     * <p>
+     * 原理：相邻句子的话题变化时，它们的向量相似度会明显下降。
+     * 通过计算每对相邻句子的余弦相似度，找到"话题切换点"。
+     * <p>
+     * 代价：每个句子都要调 embedding API，比前两种方式慢得多，但切分效果最好。
+     * 适合对检索质量要求高的场景。
+     */
+    private List<Document> splitBySemantic(List<Document> documents) {
+        List<Document> result = new ArrayList<>();
+        // 相似度低于此值认为话题切换（范围 -1~1，经验值 0.5）
+        double similarityThreshold = 0.5;
+
+        for (Document doc : documents) {
+            String text = doc.getText();
+
+            // 1. 拆成句子（中文。！？和英文.!?）
+            List<String> sentences = splitIntoSentences(text);
+            if (sentences.size() <= 1) {
+                result.add(doc);
+                continue;
+            }
+
+            // 2. 分批计算 embedding（通义 DashScope 限制每次最多 10 条）
+            log.info("语义切分: {} 个句子，正在分批计算向量...", sentences.size());
+            List<float[]> embeddings = batchEmbed(sentences);
+
+            // 3. 逐对比较相邻句子的相似度，在话题切换处切开
+            List<String> currentChunk = new ArrayList<>();
+            currentChunk.add(sentences.get(0));
+
+            for (int i = 1; i < sentences.size(); i++) {
+                double similarity = cosineSimilarity(embeddings.get(i - 1), embeddings.get(i));
+
+                if (similarity < similarityThreshold && currentChunk.size() >= 2) {
+                    // 话题变了，保存当前 chunk
+                    result.add(Document.builder()
+                            .text(String.join("", currentChunk))
+                            .metadata(doc.getMetadata())
+                            .build());
+                    currentChunk = new ArrayList<>();
+                }
+                currentChunk.add(sentences.get(i));
+            }
+
+            // 最后一个 chunk
+            if (!currentChunk.isEmpty()) {
+                result.add(Document.builder()
+                        .text(String.join("", currentChunk))
+                        .metadata(doc.getMetadata())
+                        .build());
+            }
+        }
+
+        log.info("语义切分完成，共 {} 个 chunk", result.size());
+        return result;
+    }
+
+    /**
+     * 分批调用 embedding API（通义 DashScope 限制每次最多 10 条）
+     * 分批只影响"怎么传"，不影响"算出来什么"，最终向量和一次性传完全一样
+     */
+    private List<float[]> batchEmbed(List<String> texts) {
+        List<float[]> allEmbeddings = new ArrayList<>();
+        int batchSize = 10;
+
+        for (int i = 0; i < texts.size(); i += batchSize) {
+            // 每次取最多 10 条，调 API 转成向量，拼到结果列表里
+            int end = Math.min(i + batchSize, texts.size());
+            List<String> batch = texts.subList(i, end);
+            allEmbeddings.addAll(embeddingModel.embed(batch));
+        }
+
+        return allEmbeddings;
+    }
+
+    /**
+     * 拆分句子：支持中文（。！？）和英文（.!?）以及换行符
+     */
+    private List<String> splitIntoSentences(String text) {
+        List<String> sentences = new ArrayList<>();
+        // 正向查找：在句末标点后面断句
+        String[] parts = text.split("(?<=[。！？.!?:：])");
+        for (String part : parts) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                sentences.add(trimmed);
+            }
+        }
+        return sentences;
+    }
+
+    /**
+     * 计算两个向量的余弦相似度
+     * 值域 -1~1，越接近 1 表示语义越相似
+     */
+    private double cosineSimilarity(float[] a, float[] b) {
+        float dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 }
