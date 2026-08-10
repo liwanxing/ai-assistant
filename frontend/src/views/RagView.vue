@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, reactive, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
 import request from '../utils/request'
@@ -58,8 +58,9 @@ const handleFileChange = async (event) => {
   }
 }
 
-// 发送问题：GET /rag/ask?question=xxx
-// AI 回答可能比较慢，单独设 60 秒超时（request.js 默认 10 秒）
+// 发送问题：GET /rag/ask?question=xxx（SSE 流式输出）
+// 不用 axios（axios 不支持流式读取），改用原生 fetch + ReadableStream
+// 效果：AI 回答一个字就显示一个字，打字机效果，不用等全部生成完
 const handleAsk = async () => {
   const question = inputQuestion.value.trim()
   if (!question) return
@@ -69,19 +70,65 @@ const handleAsk = async () => {
   inputQuestion.value = ''
   asking.value = true
 
-  // 添加一条 AI 占位消息，等回答回来再更新内容
-  messages.value.push({ role: 'ai', content: '正在思考中...' })
+  // 添加一条空的 AI 消息，后面逐字往里追加
+  const aiMessage = reactive({ role: 'ai', content: '' })
+  messages.value.push(aiMessage)
 
   try {
-    const res = await request.get('/rag/ask', {
-      params: { question },
-      timeout: 60000,
-    })
-    // 更新最后一条 AI 消息的内容
-    messages.value[messages.value.length - 1].content = res.data
+    // 手动拼 URL（不走 axios 的 baseURL + interceptors）
+    // 带上 satoken，和 request.js 的请求拦截器逻辑一致
+    const token = localStorage.getItem('satoken')
+    const response = await fetch(
+      `/api/rag/ask?question=${encodeURIComponent(question)}`,
+      { headers: { satoken: token } }
+    )
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    // 用 ReadableStream 逐块读取 SSE 数据
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      // 把二进制块解码成文本，追加到缓冲区
+      buffer += decoder.decode(value, { stream: true })
+
+      // SSE 格式：每条消息以 data: 开头，换行分隔
+      // 按换行分割处理
+      const lines = buffer.split('\n')
+      // 最后一行可能不完整（还没收到结尾换行），留到下次处理
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          // 去掉 data: 前缀，拿到实际内容
+          const text = line.slice(5)
+          // 后端流结束时发送 [DONE]，收到后主动关闭连接
+          if (text === '[DONE]') {
+            reader.cancel()
+            break
+          }
+          // 逐字追加到 AI 消息
+          aiMessage.content += text
+          scrollToBottom()
+        }
+      }
+    }
+
+    // 如果最终内容为空，说明出问题了
+    if (!aiMessage.content) {
+      aiMessage.content = '（未收到回答）'
+    }
   } catch {
-    // 回答失败，移除占位消息
-    messages.value.pop()
+    // 回答失败，更新占位消息为错误提示
+    if (aiMessage.content === '') {
+      aiMessage.content = '回答失败，请检查后端是否已启动'
+      ElMessage.error('请求失败')
+    }
   } finally {
     asking.value = false
     scrollToBottom()

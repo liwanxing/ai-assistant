@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.http.MediaType;
+import reactor.core.publisher.Flux;
+
 /**
  * RAG 问答接口（检索增强生成）
  * <p>
@@ -76,13 +79,15 @@ public class RagController {
     }
 
     /**
-     * RAG 问答：根据知识库内容回答用户问题
+     * RAG 问答（流式）：根据知识库内容回答用户问题，AI 回答逐字输出
      * <p>
      * 用法：GET /rag/ask?question=请假怎么请？
-     * 前提：知识库里已经有数据（先跑 VectorStoreTest 的存入测试）
+     * 返回格式：text/event-stream（SSE），每条消息格式为 data:文字片段\n\n
+     * <p>
+     * 和同步返回的区别：.call() 等全部生成完再返回，.stream() 生成一个 token 就推一个
      */
-    @GetMapping("/ask")
-    public Result<String> ask(@RequestParam String question) {
+    @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> ask(@RequestParam String question) {
         // 1. 向量检索：把问题转成向量，去 Milvus 搜最相似的 3 条文档
         List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(question)
@@ -94,16 +99,15 @@ public class RagController {
                 .map(Document::getText)
                 .collect(Collectors.joining("\n\n"));
 
-        // 3. 构造 RAG prompt，把检索到的资料和用户问题一起发给大模型
-        // system：告诉大模型它的角色和规则（必须基于资料回答，不要编造）
-        // user：给出参考资料 + 用户的问题
-        String answer = chatClient.prompt()
+        // 3. 流式生成：.stream() 替代 .call()，返回 Flux<String>
+        // 大模型每生成一个 token 就通过 SSE 推送一次，不用等全部生成完
+        // concatWithValues("[DONE]")：流结束时追加一个结束标记，和 OpenAI 的做法一样
+        return chatClient.prompt()
                 .system("你是一个知识库问答助手。请根据以下参考资料回答用户的问题。" +
                         "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
                 .user("参考资料：\n" + context + "\n\n问题：" + question)
-                .call()
-                .content();
-
-        return Result.success(answer);
+                .stream()
+                .content()
+                .concatWithValues("[DONE]");
     }
 }
