@@ -13,11 +13,17 @@ spring:
   profiles:
     active: dev
 
+  # 导入本地敏感配置（不上传 git），文件不存在也不报错（optional）
+  # 本地开发时在项目根目录放 application-local.yml，里面写真实的 API Key
+  # 线上部署时用环境变量注入，不需要这个文件
+  config:
+    import: "optional:file:./application-local.yml"
+
   # Spring AI：用 OpenAI 兼容协议接通义 DashScope（chat + embedding 都走这个）
-  # key 直接写在配置里（私有项目，不上传公开仓库；用完学习后记得去百炼控制台作废）
+  # key 用占位符，真实值在 application-local.yml 或环境变量里
   ai:
     openai:
-      api-key: sk-ws-H.ERXIMXH.Emll.MEUCIG2go4uaGbfIC1Bmw4OInOjmm6_Dk8bTM2lanIYI89s2AiEA4lEjLfvczCKIByy9cOxpPU6rF3BpJ51uc72Sz3vhRuo
+      api-key: ${AI_API_KEY:sk-placeholder}
       base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
       chat:
         model: qwen-plus            # 通义对话模型
@@ -35,19 +41,20 @@ spring:
         initialize-schema: true       # 启动时自动创建 collection（类似 JPA 的 ddl-auto）
 
   # MySQL 数据源
+  # password 用占位符，本地默认 123456，线上用环境变量注入
   datasource:
     # allowPublicKeyRetrieval=true：MySQL 8.0 默认用 caching_sha2_password 认证，需要这个参数才能连上
     url: jdbc:mysql://localhost:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
-
-  # Redis（Sa-Token 的 token 存到这里）
+  
+  # Redis（Sa-Token 的 token 存在这里）
   data:
     redis:
       host: localhost
       port: 6379
-      password: 123456
+      password: ${REDIS_PASSWORD:123456}
 
 # RAG 文档上传配置
 rag:

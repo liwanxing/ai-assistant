@@ -39,3 +39,6 @@ Thumbs.db
 
 # 上传的文档（运行时生成，不纳入版本控制）
 uploads/
+
+# 本地敏感配置（API Key 等，不上传）
+application-local.yml

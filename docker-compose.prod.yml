@@ -178,6 +178,8 @@ services:
       # Milvus 连接：容器间用服务名 milvus-standalone，不用 localhost
       SPRING_AI_VECTORSTORE_MILVUS_HOST: milvus-standalone
       SPRING_AI_VECTORSTORE_MILVUS_PORT: "19530"
+      # 通义 DashScope API Key（部署时改成你自己的）
+      AI_API_KEY: "sk-你的线上key"
       # 激活 prod profile：日志降到 INFO（logback-spring.xml 里的 prod 段才生效）
       # 不设这个的话默认走 dev，线上会一直打 DEBUG 日志
       SPRING_PROFILES_ACTIVE: prod
