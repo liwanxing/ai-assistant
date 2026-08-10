@@ -24,6 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @SpringBootTest
 class ChatModelTest {
 
+    // Spring AI 读到 application.yml 里的 spring.ai.openai 配置后，自动创建：
+    //   1. OpenAiChatModel（底层发 HTTP 请求到百炼的 chat 接口）
+    //   2. ChatClient.Builder（内部引用了上面的 ChatModel）
+    // 你注入 Builder → build() 拿到 ChatClient → 底层已绑定 ChatModel，不需要手动 new
     @Autowired
     private ChatClient.Builder chatClientBuilder;
 

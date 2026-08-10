@@ -26,6 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @SpringBootTest
 class EmbeddingModelTest {
 
+    // EmbeddingModel 的注入原理和 ChatModel 一样：
+    // Spring AI 读到 application.yml 里的 spring.ai.openai.embedding.model 配置后，
+    // 自动创建 OpenAiEmbeddingModel Bean（底层发 HTTP 请求到百炼的 embedding 接口）。
+    // 你不需要手动 new，直接注入就能用。
     @Autowired
     private EmbeddingModel embeddingModel;
 

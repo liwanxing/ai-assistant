@@ -133,4 +133,8 @@ GET http://localhost:8080/ai/test?question=你好
 GET http://localhost:8080/ai/test?question=hello
 
 
+### RAG 问答
+GET http://localhost:8080/rag/ask?question=请假怎么请？
+
+
 
