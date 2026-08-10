@@ -1,0 +1,140 @@
+# ============================================================================
+# 生产环境配置：所有服务容器化部署（app + mysql + redis + frontend）
+# ----------------------------------------------------------------------------
+# 使用方式：
+#   # 首次启动 / 改代码后重新部署（自动构建镜像）
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+#   # 只重启某个服务（不影响其他）
+#   docker compose -f docker-compose.prod.yml up -d --build app
+#
+#   # 停止
+#   docker compose -f docker-compose.prod.yml down
+#
+#   # 停止并清空数据（慎用）
+#   docker compose -f docker-compose.prod.yml down -v
+#
+# 相比 docker-compose.yml（本地开发），这里多了：
+#   - app 容器：Spring Boot 应用
+#   - frontend 容器：Nginx + Vue 静态文件
+#   - 容器间用服务名互相访问（app、mysql、redis），不用 localhost
+# ============================================================================
+
+services:
+
+  # ==========================================================================
+  # MySQL 8.0 数据库
+  # ==========================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: mysql8
+    ports:
+      # 生产环境建议去掉这行（不暴露 DB 到宿主机），这里保留方便用 DBeaver 连接排查
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: liwx_learning
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql:ro
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --character-set-client-handshake=FALSE
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Redis 7 缓存（Sa-Token 的 token 存储在这里）
+  # ==========================================================================
+  redis:
+    image: redis:7
+    container_name: redis7
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: Asia/Shanghai
+    command: ["redis-server", "--requirepass", "123456"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "123456", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Spring Boot 应用
+  # ==========================================================================
+  app:
+    # 同时声明 build 和 image：
+    #   - build：docker compose up --build 时按 Dockerfile 构建镜像
+    #   - image：构建出的镜像打上这个 tag，方便 docker 命令单独引用
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: liwanxing-learning-projects-app:latest
+    container_name: app
+    ports:
+      - "8080:8080"
+    # 关键：condition: service_healthy 让 app 等 mysql/redis 真正就绪后再启动
+    # 只用 depends_on（不带 condition）只会等容器"启动"，不等"就绪"，会连不上
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 用 Docker 服务名替换 localhost（容器间通过 Docker 内部 DNS 互访）
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "123456"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_PASSWORD: "123456"
+      # 激活 prod profile：日志降到 INFO（logback-spring.xml 里的 prod 段才生效）
+      # 不设这个的话默认走 dev，线上会一直打 DEBUG 日志
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+    volumes:
+      # 日志持久化：logback 写到 /app/logs，挂到命名卷，容器重建日志不丢
+      - app_logs:/app/logs
+    # init: true 让容器用 init 进程（PID 1）托管 Java 进程
+    # 好处：docker stop 时能正确转发 SIGTERM，应用优雅关闭，不会僵死
+    init: true
+    restart: unless-stopped
+
+  # ==========================================================================
+  # 前端（Nginx + Vue 静态文件）
+  # ==========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: liwanxing-learning-projects-frontend:latest
+    container_name: frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      - app   # 前端只是反向代理到 app，不需要等 app 健康也能启动
+    environment:
+      TZ: Asia/Shanghai
+    restart: unless-stopped
+
+# ===========================================================================
+# 命名卷
+#   mysql_data / redis_data：数据库与缓存数据持久化
+#   app_logs：应用日志持久化，容器重建后历史日志仍可查
+# ===========================================================================
+volumes:
+  mysql_data:
+  redis_data:
+  app_logs:
