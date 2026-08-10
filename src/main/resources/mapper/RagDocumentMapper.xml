@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liwx.learning.rag.mapper.RagDocumentMapper">
+
+    <resultMap id="RagDocumentResultMap" type="com.liwx.learning.rag.entity.RagDocument">
+        <id property="id" column="id"/>
+        <result property="fileName" column="file_name"/>
+        <result property="filePath" column="file_path"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="fileType" column="file_type"/>
+        <result property="chunkCount" column="chunk_count"/>
+        <result property="status" column="status"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="deleted" column="deleted"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, file_name, file_path, file_size, file_type, chunk_count, status, error_message,
+        create_time, update_time, deleted
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO rag_document (file_name, file_path, file_size, file_type, status)
+        VALUES (#{fileName}, #{filePath}, #{fileSize}, #{fileType}, #{status})
+    </insert>
+
+    <select id="selectById" resultMap="RagDocumentResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM rag_document
+        WHERE id = #{id} AND deleted = 0
+    </select>
+
+    <select id="selectAll" resultMap="RagDocumentResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM rag_document
+        WHERE deleted = 0
+        ORDER BY create_time DESC
+    </select>
+
+    <update id="updateStatus">
+        UPDATE rag_document
+        SET status = #{status},
+            chunk_count = #{chunkCount},
+            error_message = #{errorMessage}
+        WHERE id = #{id}
+    </update>
+
+    <update id="deleteById">
+        UPDATE rag_document SET deleted = 1 WHERE id = #{id}
+    </update>
+
+</mapper>

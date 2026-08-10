@@ -1,25 +1,30 @@
 package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.Result;
+import com.liwx.learning.rag.entity.RagDocument;
+import com.liwx.learning.rag.mapper.RagDocumentMapper;
+import com.liwx.learning.rag.service.RagService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
 
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
-
-import org.springframework.http.MediaType;
-import reactor.core.publisher.Flux;
 
 /**
  * RAG 问答接口（检索增强生成）
@@ -29,13 +34,6 @@ import reactor.core.publisher.Flux;
  * 和 AiController 的区别：
  * AiController 是直接问大模型，模型只用自己训练时学到的知识回答（不知道你公司的文档）
  * RAG 是先检索你的知识库，把相关内容塞给大模型，让它基于你的资料回答
- *
- * 调用链路：
- *   GET /rag/ask?question=请假怎么请？
- *   → VectorStore 把问题转成向量，去 Milvus 搜最相似的文档
- *   → 把搜到的文档内容拼进 prompt
- *   → ChatClient 把拼好的 prompt 发给通义
- *   → 通义基于你的文档生成有依据的回答
  */
 @RestController
 @RequestMapping("/rag")
@@ -43,39 +41,70 @@ public class RagController {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final RagService ragService;
+    private final RagDocumentMapper ragDocumentMapper;
 
-    public RagController(ChatClient.Builder chatClientBuilder, VectorStore vectorStore) {
+    public RagController(ChatClient.Builder chatClientBuilder, VectorStore vectorStore,
+                         RagService ragService, RagDocumentMapper ragDocumentMapper) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
+        this.ragService = ragService;
+        this.ragDocumentMapper = ragDocumentMapper;
     }
 
     /**
-     * 文档上传：上传 txt 文件 → 自动切分 → 向量化后存入 Milvus
+     * 文档上传（异步处理）：保存文件 → 插表(PROCESSING) → 立即返回 → 后台异步切分+向量化
      * <p>
-     * 做的事（同步）：
-     * 1. 读取文件内容
-     * 2. TokenTextSplitter 按 token 数量切分成多个 chunk（默认每块约 800 token）
-     * 3. VectorStore.add 内部自动调 EmbeddingModel 把每个 chunk 转成向量，再存入 Milvus
-     * <p>
-     * 现阶段用同步处理：txt 文件很小，几秒就处理完。
-     * 以后换大文件（PDF 50页）再改异步 + MQ。
-     * <p>
-     * 用法：POST /rag/upload，form-data 上传文件，字段名 file
+     * 和之前同步上传的区别：
+     * - 旧：上传后等十几秒（解析+切分+向量化），用户一直等
+     * - 新：上传后立即返回"处理中"，后台异步处理，前端轮询状态
      */
     @PostMapping("/upload")
-    public Result<Map<String, Integer>> upload(@RequestParam("file") MultipartFile file) throws Exception {
-        // 1. 读取文件内容（只支持 txt，后续再加 PDF/Word 解析）
-        String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+    public Result<Map<String, Object>> upload(@RequestParam("file") MultipartFile file) throws Exception {
+        // 1. 保存文件到本地 uploads/ 目录
+        // 用 UUID 重命名防止同名文件覆盖
+        // 必须用绝对路径：transferTo 传相对路径时，Tomcat 会解析到自己的临时目录下
+        String originalName = file.getOriginalFilename();
+        String ext = originalName.substring(originalName.lastIndexOf("."));
+        String storedName = UUID.randomUUID() + ext;
 
-        // 2. 切分：TokenTextSplitter 按 token 数量自动切分（不是按字数，更贴合模型的输入限制）
-        // 默认配置：每块最多 800 token，块之间重叠 400 token（重叠是为了保证上下文不丢失）
-        TokenTextSplitter splitter = TokenTextSplitter.builder().build();
-        List<Document> chunks = splitter.apply(List.of(new Document(content)));
+        Path uploadDir = Path.of("uploads").toAbsolutePath();
+        Files.createDirectories(uploadDir);
+        Path dest = uploadDir.resolve(storedName);
+        file.transferTo(dest.toFile());
 
-        // 3. 存入 Milvus（VectorStore 内部自动调 EmbeddingModel 转向量）
-        vectorStore.add(chunks);
+        // 2. 插入文档记录，状态标记为 PROCESSING
+        RagDocument doc = new RagDocument();
+        doc.setFileName(originalName);
+        doc.setFilePath(dest.toString());
+        doc.setFileSize(file.getSize());
+        doc.setFileType(ext.substring(1));  // 去掉点号：.pdf → pdf
+        doc.setStatus("PROCESSING");
+        ragDocumentMapper.insert(doc);
 
-        return Result.success(Map.of("chunkCount", chunks.size()));
+        // 3. 异步处理：Tika 读取 → 切分 → 向量化 → 存 Milvus（不阻塞当前请求）
+        ragService.processDocument(doc.getId(), dest.toString());
+
+        // 4. 立即返回，不等处理完
+        return Result.success(Map.of("documentId", doc.getId(), "status", "PROCESSING"));
+    }
+
+    /**
+     * 文档列表：查询已上传的文档及处理状态
+     * 前端用这个接口轮询，展示 PROCESSING → SUCCESS 的状态变化
+     */
+    @GetMapping("/documents")
+    public Result<List<RagDocument>> documents() {
+        return Result.success(ragDocumentMapper.selectAll());
+    }
+
+    /**
+     * 删除文档：同步删除 Milvus 向量 + 本地文件 + MySQL 记录（软删除）
+     */
+    @DeleteMapping("/documents/{id}")
+    public Result<Void> deleteDocument(@PathVariable Long id) {
+        ragService.deleteDocument(id);
+        return Result.success();
     }
 
     /**

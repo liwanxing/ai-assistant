@@ -2,6 +2,12 @@ spring:
   application:
     name: liwanxing-learning-projects
 
+  # 文件上传限制：默认 1MB，PDF/Word 文档通常较大，调到 50MB
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
   # 环境配置：dev 开发 / prod 线上
   # 开发时默认 dev，线上启动时加 --spring.profiles.active=prod 覆盖
   profiles:
@@ -43,6 +49,10 @@ spring:
       port: 6379
       password: 123456
 
+# RAG 文档上传配置
+rag:
+  upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹
+
 # Sa-Token 配置
 sa-token:
   token-name: satoken
@@ -53,6 +63,6 @@ sa-token:
 # MyBatis 配置
 mybatis:
   mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.liwx.learning.user.entity
+  type-aliases-package: com.liwx.learning.user.entity,com.liwx.learning.rag.entity
   configuration:
     map-underscore-to-camel-case: true

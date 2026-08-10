@@ -95,6 +95,13 @@
 			<artifactId>spring-ai-starter-vector-store-milvus</artifactId>
 		</dependency>
 
+		<!-- Spring AI Tika 文档读取：支持 PDF、Word 等格式的文档解析 -->
+		<!-- TikaDocumentReader 把整个文件读成 Document，再交给 TokenTextSplitter 切分 -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-tika-document-reader</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>
 			<artifactId>mybatis-spring-boot-starter</artifactId>

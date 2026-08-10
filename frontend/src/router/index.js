@@ -37,7 +37,14 @@ const routes = [
         meta: { title: '用户管理', icon: 'User' },
         component: () => import('../views/UserView.vue'),
       },
-      // 知识库问答页：上传文档 + RAG 问答
+      // 知识库管理：文档列表 + 上传 + 处理状态
+      {
+        path: 'rag-docs',
+        name: 'RagDocs',
+        meta: { title: '知识库管理', icon: 'Document' },
+        component: () => import('../views/RagDocsView.vue'),
+      },
+      // 知识库问答：纯聊天页面
       {
         path: 'rag',
         name: 'Rag',

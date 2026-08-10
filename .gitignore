@@ -36,3 +36,6 @@ target/
 # OS files
 .DS_Store
 Thumbs.db
+
+# 上传的文档（运行时生成，不纳入版本控制）
+uploads/

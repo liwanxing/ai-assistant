@@ -12,7 +12,8 @@ import { ElMessage } from 'element-plus'
 //   → 响应拦截器：code=200 返回数据，code!=200 显示错误提示
 const request = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  // 30 秒：默认 10 秒太短，PDF 上传 + embedding 处理可能要十几秒
+  timeout: 30000,
 })
 
 // 请求拦截器：每次请求自动带上 Sa-Token（类似后端的 SaInterceptor）
