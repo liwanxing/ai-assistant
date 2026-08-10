@@ -37,6 +37,13 @@ const routes = [
         meta: { title: '用户管理', icon: 'User' },
         component: () => import('../views/UserView.vue'),
       },
+      // 知识库问答页：上传文档 + RAG 问答
+      {
+        path: 'rag',
+        name: 'Rag',
+        meta: { title: '知识库问答', icon: 'ChatDotRound' },
+        component: () => import('../views/RagView.vue'),
+      },
       // 以后加新页面，在这里加子路由
     ],
   },
