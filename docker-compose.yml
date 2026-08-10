@@ -1,51 +1,83 @@
+# ============================================================================
+# 本地开发环境配置：只启动 MySQL + Redis
+# ----------------------------------------------------------------------------
+# 使用方式：
+#   docker compose up -d            启动 MySQL + Redis
+#   docker compose down             停止并删除容器（数据保留在命名卷里）
+#   docker compose down -v          停止并删除容器 + 清空数据卷（重置数据库）
+#
+# 设计思路（混合部署）：
+#   数据库 / 缓存  → Docker 容器（环境一致，不用本地装 MySQL/Redis）
+#   后端           → IDEA 里直接跑 LearningApplication（断点调试、实时日志）
+#   前端           → npm run dev（Vite 热更新，改代码自动刷新）
+#   这样既享受容器的环境隔离，又保留本地开发的调试体验。
+#
+# 与 docker-compose.prod.yml 的区别：
+#   - 这里只有 2 个服务，prod 有 4 个（多了 app 和 frontend）
+#   - 这里不跑 Spring Boot 容器，因为本地 IDEA 调试更方便
+# ============================================================================
+
 services:
-  # MySQL database
+
+  # ==========================================================================
+  # MySQL 8.0 数据库
+  # ==========================================================================
   mysql:
     image: mysql:8.0
     container_name: mysql8
     ports:
-      - "3306:3306"
+      - "3306:3306"   # 暴露给宿主机，IDEA/DBeaver 可连 localhost:3306
     environment:
       MYSQL_ROOT_PASSWORD: "123456"
-      MYSQL_DATABASE: liwx_learning
+      MYSQL_DATABASE: liwx_learning      # 容器启动时自动创建这个库
+      TZ: Asia/Shanghai                   # 容器时区，让日志时间与本地一致
     volumes:
-      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --character-set-client-handshake=FALSE
+      # 数据持久化：把 /var/lib/mysql 存到命名卷，down 容器数据不丢
+      - mysql_data:/var/lib/mysql
+      # 初始化脚本：容器首次启动时自动执行（仅首次，已有数据卷时跳过）
+      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql:ro
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --character-set-client-handshake=FALSE
+    # 健康检查：docker 据此判断 MySQL 是否"真正就绪"（能响应连接）
+    # mysqladmin ping 返回 0 表示可连，配合 app 的 condition: service_healthy 用
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD", "--silent"]
+      interval: 10s       # 每 10 秒检查一次
+      timeout: 5s         # 单次检查超时时间
+      retries: 10         # 最多重试 10 次才判定为 unhealthy
+      start_period: 30s   # 启动后 30 秒内失败不计入 retries（给初始化留时间）
+    restart: unless-stopped
 
-  # Redis cache (Sa-Token token storage)
+  # ==========================================================================
+  # Redis 7 缓存（Sa-Token 的 token 存储在这里）
+  # ==========================================================================
   redis:
     image: redis:7
     container_name: redis7
     ports:
-      - "6379:6379"
-    command: --requirepass 123456
-
-  # Spring Boot application (only rebuild this when code changes)
-  app:
-    image: liwanxing-learning-projects-app:latest
-    container_name: app
-    ports:
-      - "8080:8080"
-    depends_on:
-      - mysql
-      - redis
-    # Override config: use Docker service names instead of localhost
+      - "6379:6379"   # 暴露给宿主机，本地连 localhost:6379
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=123456
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PASSWORD=123456
+      TZ: Asia/Shanghai
+    command: ["redis-server", "--requirepass", "123456"]
+    volumes:
+      # 数据持久化：token / 缓存数据存到命名卷，重启不丢
+      - redis_data:/data
+    # 健康检查：redis-cli ping 能返回 PONG 说明 Redis 可用
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "123456", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
-  # Frontend (Nginx + Vue static files)
-  # 多阶段构建：Docker 内部执行 npm run build，用 Nginx 托管静态文件
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: liwanxing-learning-projects-frontend:latest
-    container_name: frontend
-    ports:
-      - "8081:80"
-    depends_on:
-      - app
+# ===========================================================================
+# 命名卷：由 Docker 管理，存在 Docker 默认数据目录里
+#   - docker compose down       → 容器删除，卷保留（数据还在）
+#   - docker compose down -v    → 容器 + 卷一起删（彻底重置）
+# ===========================================================================
+volumes:
+  mysql_data:
+  redis_data:

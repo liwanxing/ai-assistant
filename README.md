@@ -72,46 +72,78 @@ sql/
 └── rbac.sql          # 建表 + 初始化数据脚本
 
 Dockerfile            # 应用镜像构建文件
-docker-compose.yml    # 一键部署编排文件
+docker-compose.yml    # 本地开发环境配置（MySQL + Redis）
+docker-compose.prod.yml # 预发/线上环境配置（全部服务容器化）
 ```
 
 ## 本地开发
 
-### 方式一：IDEA 直接运行
+### 推荐方式：混合部署（docker-compose.yml）
 
 1. 用 Docker Compose 启动 MySQL + Redis：
    ```
-   docker compose up -d mysql redis
-   # -d 表示后台运行；后面跟服务名表示只启动指定服务，不跟则启动全部
+   docker compose up -d
+   # 只启动 MySQL + Redis，前后端本地运行
    ```
-2. 在 IDEA 中直接运行 `LearningApplication`
+2. 启动前端开发服务器：
+   ```
+   cd frontend
+   npm run dev
+   # 访问 http://localhost:5173（热更新，改代码自动刷新）
+   ```
+3. 在 IDEA 中直接运行 `LearningApplication`（断点调试，实时日志）
 
-### 方式二：Docker Compose 全容器化运行
+**优点**：
+- 前端热更新，改代码立即生效
+- 后端断点调试，查看实时日志
+- 数据库和缓存容器化，环境一致
 
+### 完整容器化：预发/线上环境（docker-compose.prod.yml）
+
+```bash
+# 全容器化部署，用于预发或线上环境
+docker compose -f docker-compose.prod.yml up -d
 ```
-docker compose up -d   # 不跟服务名 = 启动全部服务（app + mysql + redis）
-```
+
+访问地址：
+- 前端：http://localhost:8081
+- 后端：http://localhost:8080
+- MySQL：localhost:3306
+- Redis：localhost:6379
 
 ## 应用更新流程（改代码后重新部署）
 
-修改 Java 代码后，只需重新构建并更新 APP 镜像，不影响 MySQL 和 Redis：
+### 本地开发环境（docker-compose.yml）
 
-```
-# 1. Maven 打包：把 .java 源码编译成 jar 包
-#    方式A：本地已安装 Maven（配了环境变量）
-mvn clean package -DskipTests
-#    方式B：本地没装 Maven，用项目自带的 Maven Wrapper（即开即用）
-# .\mvnw.cmd clean package -DskipTests
+- **前端**：改代码自动热更新，无需重新部署
+- **后端**：在 IDEA 中重启应用即可，无需重新部署
+- **数据库/缓存**：通过 Docker 容器运行，环境一致性
 
-# 2. Docker 构建：把 jar 包 + JRE 运行环境 打包成 Docker 镜像
-#    -t 指定镜像名，必须和 docker-compose.yml 里 app 服务的 image 名一致
+### 预发/线上环境（docker-compose.prod.yml）
+
+修改代码后，需要重新构建镜像并重启容器：
+
+**后端更新**：
+```bash
+# 1. Maven 打包
+.\mvnw.cmd clean package -DskipTests
+
+# 2. Docker 构建
 docker build --pull=false -t liwanxing-learning-projects-app .
 
-# 3. Compose 部署：用新镜像启动 app 容器
-#    -d 后台运行；不跟服务名表示启动全部服务
-#    镜像名 liwanxing-learning-projects-app:latest 与 docker-compose.yml 中 app.image 一致
-#    Compose 在本地找到第2步构建的镜像；mysql/redis 已在运行则不受影响，只重建 app
-docker compose up -d
+# 3. Compose 部署（只更新 app，不影响 MySQL 和 Redis）
+docker compose -f docker-compose.prod.yml up -d app
+```
+
+**前端更新**：
+```bash
+# 1. Docker 构建（在 frontend 目录执行）
+cd frontend
+docker build --pull=false -t liwanxing-learning-projects-frontend .
+cd ..
+
+# 2. Compose 部署（只更新 frontend）
+docker compose -f docker-compose.prod.yml up -d frontend
 ```
 
 三步产出对比：
@@ -137,28 +169,13 @@ docker compose up -d
 - Password: `123456`
 - Advanced 选项卡中设置 `allowPublicKeyRetrieval = true`（MySQL 8.0 认证需要）
 
-## 前端容器化部署
+## 预发/线上部署（docker-compose.prod.yml）
 
-前端使用多阶段构建 Docker 镜像，内部执行 `npm run build` 后用 Nginx 托管静态文件。
-
-### 核心文件说明
-
-- `Dockerfile`：多阶段构建配置
-  - 第一阶段：用 Node.js 镜像编译前端，产出 `dist/` 静态文件
-  - 第二阶段：用 Nginx 镜像托管 `dist/`，最终镜像很小（只有 Nginx + 静态文件）
-
-- `nginx.conf`：Nginx 配置
-  - 静态托管：前端页面直接返回静态文件
-  - API 代理：`/api` 开头请求转发到 `app:8080/`（去掉 `/api` 前缀）
-  - Vue Router 支持：找不到的路径回退到 `index.html`（刷新页面不 404）
-
-- `.dockerignore`：构建时忽略 `node_modules`、`dist`、`*.md` 等
-
-### 部署流程（从零部署）
+### 部署流程
 
 ```bash
 # 一键启动全部服务（app + mysql + redis + frontend）
-docker compose up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 访问地址：
@@ -167,29 +184,12 @@ docker compose up -d
 - MySQL：localhost:3306
 - Redis：localhost:6379
 
-### 前端应用更新流程（改代码后重新部署）
-
-修改前端代码后，只需重新构建并更新 frontend 镜像，不影响其他服务：
-
-```bash
-# 1. Docker 构建：在 frontend 目录执行，把前端代码打包成 Docker 镜像
-#    -t 指定镜像名，必须和 docker-compose.yml 里 frontend 服务的 image 名一致
-cd frontend
-docker build --pull=false -t liwanxing-learning-projects-frontend .
-cd ..
-
-# 2. Compose 部署：用新镜像启动 frontend 容器
-#    镜像名 liwanxing-learning-projects-frontend:latest 与 docker-compose.yml 中 frontend.image 一致
-#    Compose 在本地找到第1步构建的镜像；其他服务已在运行则不受影响，只重建 frontend
-docker compose up -d frontend
-```
-
 ### 前后端开发与部署对比
 
 | 场景 | 前端运行方式 | API 代理配置 | 访问地址 |
 |------|------------|------------|---------|
 | 本地开发 | `npm run dev`（Vite 开发服务器） | Vite 代理（vite.config.js） | http://localhost:5173 |
-| 生产部署 | Nginx 容器托管静态文件 | Nginx 反向代理（nginx.conf） | http://localhost:8081 |
+| 预发/线上 | Nginx 容器托管静态文件 | Nginx 反向代理（nginx.conf） | http://localhost:8081 |
 
 开发时前端请求 `/api/user/list`：
 - **Vite 代理**：前端 → Vite（5173）→ 重写为 `/user/list` → 后端（8080）
