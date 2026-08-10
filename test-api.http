@@ -133,8 +133,19 @@ GET http://localhost:8080/ai/test?question=你好
 GET http://localhost:8080/ai/test?question=hello
 
 
+### 上传文档到知识库（会自动切分并存入 Milvus）
+POST http://localhost:8080/rag/upload
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="rules.txt"
+Content-Type: text/plain
+
+< ./test-files/rules.txt
+--boundary--
+
 ### RAG 问答
 GET http://localhost:8080/rag/ask?question=请假怎么请？
 
-
-
+### RAG 问答 — 换个问题
+GET http://localhost:8080/rag/ask?question=迟到会怎么扣钱？

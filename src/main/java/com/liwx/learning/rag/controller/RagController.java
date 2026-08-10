@@ -6,11 +6,16 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +44,35 @@ public class RagController {
     public RagController(ChatClient.Builder chatClientBuilder, VectorStore vectorStore) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
+    }
+
+    /**
+     * 文档上传：上传 txt 文件 → 自动切分 → 向量化后存入 Milvus
+     * <p>
+     * 做的事（同步）：
+     * 1. 读取文件内容
+     * 2. TokenTextSplitter 按 token 数量切分成多个 chunk（默认每块约 800 token）
+     * 3. VectorStore.add 内部自动调 EmbeddingModel 把每个 chunk 转成向量，再存入 Milvus
+     * <p>
+     * 现阶段用同步处理：txt 文件很小，几秒就处理完。
+     * 以后换大文件（PDF 50页）再改异步 + MQ。
+     * <p>
+     * 用法：POST /rag/upload，form-data 上传文件，字段名 file
+     */
+    @PostMapping("/upload")
+    public Result<Map<String, Integer>> upload(@RequestParam("file") MultipartFile file) throws Exception {
+        // 1. 读取文件内容（只支持 txt，后续再加 PDF/Word 解析）
+        String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+
+        // 2. 切分：TokenTextSplitter 按 token 数量自动切分（不是按字数，更贴合模型的输入限制）
+        // 默认配置：每块最多 800 token，块之间重叠 400 token（重叠是为了保证上下文不丢失）
+        TokenTextSplitter splitter = TokenTextSplitter.builder().build();
+        List<Document> chunks = splitter.apply(List.of(new Document(content)));
+
+        // 3. 存入 Milvus（VectorStore 内部自动调 EmbeddingModel 转向量）
+        vectorStore.add(chunks);
+
+        return Result.success(Map.of("chunkCount", chunks.size()));
     }
 
     /**
