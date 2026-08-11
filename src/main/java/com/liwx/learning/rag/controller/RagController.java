@@ -7,6 +7,7 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import com.liwx.learning.rag.service.RagService;
 import com.liwx.learning.rag.service.RerankService;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -106,12 +107,13 @@ public class RagController {
     }
 
     /**
-     * RAG 问答（流式）：根据知识库内容回答用户问题，AI 回答逐字输出
-     * 用法：GET /rag/ask?question=请假怎么请？
+     * RAG 问答（流式 + 多轮对话）：根据知识库内容回答用户问题，支持上下文追问
+     * 用法：GET /rag/ask?question=请假怎么请？&sessionId=xxx
+     * sessionId：前端生成的会话标识，同一个 sessionId 下的问题会共享对话历史
      * 返回格式：text/event-stream（SSE），每条消息格式为 data:文字片段\n\n
      */
     @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> ask(@RequestParam String question) {
+    public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId) {
         // 1. 向量检索：先从 Milvus 多召回一些候选（topK=10），给 Rerank 留筛选空间
         List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(question)
@@ -133,14 +135,13 @@ public class RagController {
                     .append("\n\n");
         }
 
-        // 4. 流式生成：.stream() 替代 .call()，返回 Flux<String>
-        // 大模型每生成一个 token 就通过 SSE 推送一次，不用等全部生成完
-        // concatWithValues("[DONE]")：流结束时追加一个结束标记，和 OpenAI 的做法一样
+        // 4. 流式生成 + 多轮记忆：advisors 传入 sessionId，Advisor 自动从 MySQL 加载历史拼到 prompt 里
         return chatClient.prompt()
                 .system("你是一个知识库问答助手。请根据以下参考资料回答用户的问题。" +
                         "回答时请在引用的内容后面标注来源，格式如[1]、[2]，对应参考资料的编号。" +
                         "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
                 .user("参考资料：\n" + contextBuilder + "\n\n问题：" + question)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, sessionId))
                 .stream()
                 .content()
                 .concatWithValues("[DONE]");

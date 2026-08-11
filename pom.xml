@@ -95,6 +95,12 @@
 			<artifactId>spring-ai-starter-vector-store-milvus</artifactId>
 		</dependency>
 
+		<!-- Spring AI ChatMemory JDBC：多轮对话记忆，对话历史自动存 MySQL -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
+		</dependency>
+
 		<!-- Spring AI Tika 文档读取：支持 PDF、Word 等格式的文档解析 -->
 		<!-- TikaDocumentReader 把整个文件读成 Document，再交给 TokenTextSplitter 切分 -->
 		<dependency>

@@ -1,16 +1,24 @@
 <script setup>
 import { ref, reactive, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
+import { ChatDotRound, Promotion, Plus } from '@element-plus/icons-vue'
 
 // ──────────────────────────────────────
 // 数据定义
 // ──────────────────────────────────────
 
+// 会话 ID：前端生成，同一个 sessionId 下的问题共享对话历史（后端 ChatMemory 按 sessionId 存取）
+const sessionId = ref(crypto.randomUUID())
 const messages = ref([])
 const inputQuestion = ref('')
 const asking = ref(false)
 const chatBodyRef = ref(null)
+
+// 新对话：换一个新的 sessionId，清空聊天记录
+const newChat = () => {
+  sessionId.value = crypto.randomUUID()
+  messages.value = []
+}
 
 // ──────────────────────────────────────
 // 发送问题：GET /rag/ask?question=xxx（SSE 流式输出）
@@ -32,7 +40,7 @@ const handleAsk = async () => {
   try {
     const token = localStorage.getItem('satoken')
     const response = await fetch(
-      `/api/rag/ask?question=${encodeURIComponent(question)}`,
+      `/api/rag/ask?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
       { headers: { satoken: token } }
     )
 
@@ -121,8 +129,9 @@ const scrollToBottom = () => {
       </div>
     </div>
 
-    <!-- 底部输入区域 -->
+    <!-- 底部操作区：新对话 + 输入框 + 发送 -->
     <div style="display: flex; gap: 12px; margin-top: 16px;">
+      <el-button :icon="Plus" @click="newChat" :disabled="asking" title="开始新对话（清空当前记录）" />
       <el-input
         v-model="inputQuestion"
         placeholder="输入你的问题..."

@@ -34,6 +34,12 @@ spring:
         model: qwen-plus            # 通义对话模型
       embedding:
         model: text-embedding-v3    # 通义向量模型，把文本转成向量（1024维）
+    # ChatMemory 对话记忆：对话历史自动存 MySQL（SPRING_AI_CHAT_MEMORY 表）
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always  # MySQL 不是嵌入式数据库，默认不建表，必须设为 always
     # Milvus 向量数据库（Spring AI 自动读取这个配置连 Milvus）
     # 本地运行时连 localhost，Docker 容器里用环境变量覆盖成服务名 milvus-standalone
     vectorstore:

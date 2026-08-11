@@ -3,8 +3,7 @@ package com.liwx.learning.rag.service;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
@@ -27,10 +26,9 @@ import java.util.List;
  * 文档解析 + 切分 + 向量化加起来可能要十几秒，改为异步后上传接口立即返回，后台处理完更新数据库状态。
  * 注意：@Async 方法必须和调用者不在同一个类，否则 Spring 的 AOP 代理不生效
  */
+@Slf4j
 @Service
 public class RagService {
-
-    private static final Logger log = LoggerFactory.getLogger(RagService.class);
 
     @Autowired
     private RagDocumentMapper ragDocumentMapper;
@@ -149,35 +147,6 @@ public class RagService {
     }
 
     /**
-     * 删除文档：删 Milvus 向量 → 删本地文件 → 软删除 MySQL 记录
-     */
-    public void deleteDocument(Long documentId) {
-        RagDocument doc = ragDocumentMapper.selectById(documentId);
-        if (doc == null) return;
-
-        // 1. 删除 Milvus 中的向量（只有处理成功的文档才有向量）
-        if ("SUCCESS".equals(doc.getStatus()) && doc.getChunkCount() != null && doc.getChunkCount() > 0) {
-            List<String> ids = new ArrayList<>();
-            for (int i = 0; i < doc.getChunkCount(); i++) {
-                ids.add("doc" + documentId + "_" + i);
-            }
-            vectorStore.delete(ids);
-            log.info("已删除 Milvus 向量, documentId={}, chunks={}", documentId, ids.size());
-        }
-
-        // 2. 删除本地文件
-        try {
-            Files.deleteIfExists(Path.of(doc.getFilePath()));
-        } catch (Exception e) {
-            log.warn("删除本地文件失败: {}", doc.getFilePath(), e);
-        }
-
-        // 3. 软删除 MySQL 记录
-        ragDocumentMapper.deleteById(documentId);
-        log.info("文档已删除, documentId={}", documentId);
-    }
-
-    /**
      * 段落切分：先按换行分段，再把相邻小段合并到不超过 token 上限
      * 和 TokenTextSplitter 的区别：
      * - Token 硬切：到 token 数就断，可能切断句子（如"审批流|程是"）
@@ -246,7 +215,14 @@ public class RagService {
             String text = doc.getText();
 
             // 1. 拆成句子（中文。！？和英文.!?）
-            List<String> sentences = splitIntoSentences(text);
+            List<String> sentences = new ArrayList<>();
+            String[] parts = text.split("(?<=[。！？.!?:：])");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    sentences.add(trimmed);
+                }
+            }
             if (sentences.size() <= 1) {
                 result.add(doc);
                 continue;
@@ -254,14 +230,28 @@ public class RagService {
 
             // 2. 分批计算 embedding（通义 DashScope 限制每次最多 10 条）
             log.info("语义切分: {} 个句子，正在分批计算向量...", sentences.size());
-            List<float[]> embeddings = batchEmbed(sentences);
+            List<float[]> embeddings = new ArrayList<>();
+            int batchSize = 10;
+            for (int i = 0; i < sentences.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, sentences.size());
+                embeddings.addAll(embeddingModel.embed(sentences.subList(i, end)));
+            }
 
             // 3. 逐对比较相邻句子的相似度，在话题切换处切开
             List<String> currentChunk = new ArrayList<>();
             currentChunk.add(sentences.get(0));
 
             for (int i = 1; i < sentences.size(); i++) {
-                double similarity = cosineSimilarity(embeddings.get(i - 1), embeddings.get(i));
+                // 计算余弦相似度（值域 -1~1，越接近 1 表示语义越相似）
+                float[] vecA = embeddings.get(i - 1);
+                float[] vecB = embeddings.get(i);
+                float dot = 0, normA = 0, normB = 0;
+                for (int j = 0; j < vecA.length; j++) {
+                    dot += vecA[j] * vecB[j];
+                    normA += vecA[j] * vecA[j];
+                    normB += vecB[j] * vecB[j];
+                }
+                double similarity = dot / (Math.sqrt(normA) * Math.sqrt(normB));
 
                 if (similarity < similarityThreshold && currentChunk.size() >= 2) {
                     // 话题变了，保存当前 chunk
@@ -288,50 +278,31 @@ public class RagService {
     }
 
     /**
-     * 分批调用 embedding API（通义 DashScope 限制每次最多 10 条）
-     * 分批只影响"怎么传"，不影响"算出来什么"，最终向量和一次性传完全一样
+     * 删除文档：删 Milvus 向量 → 删本地文件 → 软删除 MySQL 记录
      */
-    private List<float[]> batchEmbed(List<String> texts) {
-        List<float[]> allEmbeddings = new ArrayList<>();
-        int batchSize = 10;
+    public void deleteDocument(Long documentId) {
+        RagDocument doc = ragDocumentMapper.selectById(documentId);
+        if (doc == null) return;
 
-        for (int i = 0; i < texts.size(); i += batchSize) {
-            // 每次取最多 10 条，调 API 转成向量，拼到结果列表里
-            int end = Math.min(i + batchSize, texts.size());
-            List<String> batch = texts.subList(i, end);
-            allEmbeddings.addAll(embeddingModel.embed(batch));
-        }
-
-        return allEmbeddings;
-    }
-
-    /**
-     * 拆分句子：支持中文（。！？）和英文（.!?）以及换行符
-     */
-    private List<String> splitIntoSentences(String text) {
-        List<String> sentences = new ArrayList<>();
-        // 正向查找：在句末标点后面断句
-        String[] parts = text.split("(?<=[。！？.!?:：])");
-        for (String part : parts) {
-            String trimmed = part.trim();
-            if (!trimmed.isEmpty()) {
-                sentences.add(trimmed);
+        // 1. 删除 Milvus 中的向量（只有处理成功的文档才有向量）
+        if ("SUCCESS".equals(doc.getStatus()) && doc.getChunkCount() != null && doc.getChunkCount() > 0) {
+            List<String> ids = new ArrayList<>();
+            for (int i = 0; i < doc.getChunkCount(); i++) {
+                ids.add("doc" + documentId + "_" + i);
             }
+            vectorStore.delete(ids);
+            log.info("已删除 Milvus 向量, documentId={}, chunks={}", documentId, ids.size());
         }
-        return sentences;
-    }
 
-    /**
-     * 计算两个向量的余弦相似度
-     * 值域 -1~1，越接近 1 表示语义越相似
-     */
-    private double cosineSimilarity(float[] a, float[] b) {
-        float dot = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
+        // 2. 删除本地文件
+        try {
+            Files.deleteIfExists(Path.of(doc.getFilePath()));
+        } catch (Exception e) {
+            log.warn("删除本地文件失败: {}", doc.getFilePath(), e);
         }
-        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+
+        // 3. 软删除 MySQL 记录
+        ragDocumentMapper.deleteById(documentId);
+        log.info("文档已删除, documentId={}", documentId);
     }
 }
