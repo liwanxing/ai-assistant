@@ -11,12 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Chat 模型测试：验证通义 DashScope 对话能力
- * <p>
  * 对应原 AiController 的功能，但用单元测试验证更合理：
  * - 可断言结果，不只是看打印
  * - 不需要启动 Postman/HTTP Client 手动调
  * - 跑完就结束，不占用 HTTP 端口
- * <p>
  * 前置条件：通义 DashScope API Key 有效（application.yml 中配置）
  *
  * @see ChatClient
@@ -41,7 +39,6 @@ class ChatModelTest {
 
     /**
      * 验证对话：发一个问题给通义，拿到非空回答
-     * <p>
      * 调用链路：
      * prompt() → user(question) → call() → content()
      * 就是：开始构建对话 → 加用户消息 → 同步调模型 → 取文本

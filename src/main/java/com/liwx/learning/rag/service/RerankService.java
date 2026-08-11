@@ -18,15 +18,12 @@ import java.util.Map;
 
 /**
  * Rerank 重排序服务
- * <p>
  * 为什么需要 Rerank：
  * 向量检索（Milvus）用的是"语义相似度"，可能召回语义相近但不是最相关的结果。
  * Rerank 模型专门做"相关性判断"，对每个候选结果重新打分，把最相关的排到前面。
- * <p>
  * 流程对比：
  * 不用 Rerank：用户问题 → Milvus 检索 topK=3 → 直接给大模型
  * 用 Rerank：用户问题 → Milvus 检索 topK=10 → Rerank 重排序 → 取最相关 topK=3 → 给大模型
- * <p>
  * 通义 Rerank API 不是 OpenAI 兼容格式，是 DashScope 自己的接口，需要手动调 HTTP
  */
 @Service

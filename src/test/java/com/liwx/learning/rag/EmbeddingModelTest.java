@@ -10,13 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Embedding 模型测试：验证文本转向量（Embedding）功能
- * <p>
  * 包路径 com.liwx.learning.rag 与源码中的 rag 模块对应。
- * <p>
  * Embedding 是 RAG 的基础能力：
  * 把人类理解的文字 → 转成机器理解的数字向量（1024 维），
  * 语义相近的文本，向量距离也近，这是后续向量检索的前提。
- * <p>
  * 前置条件：
  * 1. Milvus 容器已启动（@SpringBootTest 会加载完整上下文，含 MilvusVectorStore 自动配置）
  * 2. 通义 DashScope API Key 有效（application.yml 中配置）
@@ -35,7 +32,6 @@ class EmbeddingModelTest {
 
     /**
      * 验证文本转向量：一段中文 → 1024 维浮点数组
-     * <p>
      * 验证点：
      * - 返回的向量不为 null（说明通义 embedding 接口调通了）
      * - 维度等于 1024（text-embedding-v3 的输出维度）

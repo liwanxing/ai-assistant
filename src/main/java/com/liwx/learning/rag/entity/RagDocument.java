@@ -8,7 +8,6 @@ import java.time.LocalDateTime;
 
 /**
  * RAG 文档实体：记录用户上传的文档元信息和处理状态
- * <p>
  * 和 Milvus 的分工：
  * - MySQL rag_document 表：记录"谁上传了什么文件、处理到哪一步了"
  * - Milvus 向量库：存切分后的 chunk 向量，用于相似度检索

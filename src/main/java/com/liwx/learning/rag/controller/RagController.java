@@ -2,6 +2,7 @@ package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.Result;
 import com.liwx.learning.rag.entity.RagDocument;
+import com.liwx.learning.rag.enums.SplitStrategy;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import com.liwx.learning.rag.service.RagService;
 import com.liwx.learning.rag.service.RerankService;
@@ -10,6 +11,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,12 +31,7 @@ import java.util.UUID;
 
 /**
  * RAG 问答接口（检索增强生成）
- * <p>
- * 完整链路：用户提问 → 向量检索 Milvus → 拼接检索结果到 prompt → 通义大模型生成回答
- * <p>
- * 和 AiController 的区别：
- * AiController 是直接问大模型，模型只用自己训练时学到的知识回答（不知道你公司的文档）
- * RAG 是先检索你的知识库，把相关内容塞给大模型，让它基于你的资料回答
+ * 链路：用户提问 → 向量检索知识库 → 大模型基于检索结果生成回答
  */
 @RestController
 @RequestMapping("/rag")
@@ -51,25 +48,28 @@ public class RagController {
     @Autowired
     private RagDocumentMapper ragDocumentMapper;
 
+    @Value("${rag.upload-dir}")
+    private String uploadDir;
+
     /**
-     * 文档上传（异步）：保存文件 → 插表(PROCESSING) → 立即返回 → 后台异步切分+向量化
-     * 前端轮询 /rag/documents 看 PROCESSING → SUCCESS 的状态变化
+     * 文档上传（异步）：
+     * 1. 保存文件到本地
+     * 2. 插表(PROCESSING)
+     * 3. 异步切分+向量化
+     * 4. 立即返回
      */
     @PostMapping("/upload")
     public Result<Map<String, Object>> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "splitStrategy", defaultValue = "token") String splitStrategy) throws Exception {
-        // 1. 保存文件到本地 uploads/ 目录
-        // 用 UUID 重命名防止同名文件覆盖
-        // 必须用绝对路径：transferTo 传相对路径时，Tomcat 会解析到自己的临时目录下
+            @RequestParam(value = "splitStrategy", defaultValue = "token") SplitStrategy splitStrategy) throws Exception {
+        // 1. 保存文件到本地
         String originalName = file.getOriginalFilename();
-        String ext = originalName.substring(originalName.lastIndexOf("."));
-        String storedName = UUID.randomUUID() + ext;
-
-        Path uploadDir = Path.of("uploads").toAbsolutePath();
-        Files.createDirectories(uploadDir);
-        Path dest = uploadDir.resolve(storedName);
-        file.transferTo(dest.toFile());
+        String ext = originalName.substring(originalName.lastIndexOf("."));  // 取扩展名：.pdf
+        String storedName = UUID.randomUUID() + ext;  // 拼上 UUID 生成新文件名，防止同名文件互相覆盖
+        Path dir = Path.of(uploadDir).toAbsolutePath();  // 必须用绝对路径：transferTo 传相对路径时，Tomcat 会解析到自己的临时目录下
+        Files.createDirectories(dir);  // 目录不存在时自动创建
+        Path dest = dir.resolve(storedName);  // 拼接：目录路径 + 文件名
+        file.transferTo(dest.toFile());  // 把上传的文件写到磁盘
 
         // 2. 插入文档记录，状态标记为 PROCESSING
         RagDocument doc = new RagDocument();

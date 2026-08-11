@@ -15,11 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * VectorStore 存取测试：验证 Milvus 存入向量 + 相似度检索
- * <p>
  * 这是 RAG 的核心环节：
  * 1. 把几条文本通过 EmbeddingModel 转成向量，存进 Milvus（VectorStore.add 自动完成转向量+存储）
  * 2. 用一个问题也转成向量，去 Milvus 里搜语义最接近的文本（VectorStore.similaritySearch）
- * <p>
  * 前置条件：
  * 1. Milvus 容器已启动
  * 2. 通义 DashScope API Key 有效（embedding 会调通义接口）
@@ -34,11 +32,9 @@ class VectorStoreTest {
 
     /**
      * 第 3 步：往 Milvus 存入 3 条假数据
-     * <p>
      * VectorStore.add() 内部自动做了两件事：
      * 1. 调 EmbeddingModel 把每条文本转成向量
      * 2. 把向量 + 原文 + 元数据一起存进 Milvus
-     * <p>
      * 注意：重复运行会追加重复数据，学习阶段暂时不管。后续可加 deleteByFilter 清理。
      */
     @Test
@@ -67,12 +63,10 @@ class VectorStoreTest {
 
     /**
      * 第 4 步：从 Milvus 做相似度检索
-     * <p>
      * 输入一个问题，VectorStore 会：
      * 1. 把问题转成向量
      * 2. 去 Milvus 里算每个向量和这个问题的"语义距离"
      * 3. 按距离从小到大（越相似越靠前）返回 Top-K 条
-     * <p>
      * 依赖：需要先跑 shouldStoreDocumentsWhenAddToVectorStore 存入数据。
      * 如果单独跑这个测试发现搜不到结果，先跑上面那个存入测试。
      */
