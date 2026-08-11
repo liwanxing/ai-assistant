@@ -2,6 +2,7 @@ package com.liwx.learning.config;
 
 import cn.dev33.satoken.stp.StpInterface;
 import com.liwx.learning.user.mapper.PermissionMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -22,11 +23,8 @@ import java.util.List;
 @Component
 public class StpInterfaceImpl implements StpInterface {
 
-    private final PermissionMapper permissionMapper;
-
-    public StpInterfaceImpl(PermissionMapper permissionMapper) {
-        this.permissionMapper = permissionMapper;
-    }
+    @Autowired
+    private PermissionMapper permissionMapper;
 
     /**
      * 返回指定用户的角色列表

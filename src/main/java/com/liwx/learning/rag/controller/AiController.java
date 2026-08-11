@@ -2,6 +2,7 @@ package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.Result;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,12 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/ai")
 public class AiController {
 
-    private final ChatClient chatClient;
-
-    // 直接注入 AiConfig 里 build 好的 ChatClient
-    public AiController(ChatClient chatClient) {
-        this.chatClient = chatClient;
-    }
+    @Autowired
+    private ChatClient chatClient;
 
     /**
      * 最简测试：把 question 发给通义，返回通义的回答

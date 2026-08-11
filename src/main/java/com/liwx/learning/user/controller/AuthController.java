@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,11 +26,8 @@ import java.util.Map;
 @RestController
 public class AuthController {
 
-    private final UserMapper userMapper;
-
-    public AuthController(UserMapper userMapper) {
-        this.userMapper = userMapper;
-    }
+    @Autowired
+    private UserMapper userMapper;
 
     /**
      * 登录：查数据库验证账号密码，成功后 Sa-Token 自动生成 token

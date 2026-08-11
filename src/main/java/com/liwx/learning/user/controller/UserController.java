@@ -8,6 +8,7 @@ import com.liwx.learning.user.dto.UserUpdateDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.service.UserService;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,11 +17,8 @@ import java.util.List;
 @RequestMapping("/users")
 public class UserController {
 
-    private final UserService userService;
-
-    public UserController(UserService userService) {
-        this.userService = userService;
-    }
+    @Autowired
+    private UserService userService;
 
     // GET /users - 查询所有用户（需要 user:list 权限）
     @SaCheckPermission("user:list")

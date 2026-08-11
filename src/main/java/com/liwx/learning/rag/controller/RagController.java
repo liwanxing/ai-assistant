@@ -9,6 +9,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,21 +40,16 @@ import java.util.UUID;
 @RequestMapping("/rag")
 public class RagController {
 
-    private final ChatClient chatClient;
-    private final VectorStore vectorStore;
-    private final RagService ragService;
-    private final RerankService rerankService;
-    private final RagDocumentMapper ragDocumentMapper;
-
-    public RagController(ChatClient chatClient, VectorStore vectorStore,
-                         RagService ragService, RerankService rerankService,
-                         RagDocumentMapper ragDocumentMapper) {
-        this.chatClient = chatClient;
-        this.vectorStore = vectorStore;
-        this.ragService = ragService;
-        this.rerankService = rerankService;
-        this.ragDocumentMapper = ragDocumentMapper;
-    }
+    @Autowired
+    private ChatClient chatClient;
+    @Autowired
+    private VectorStore vectorStore;
+    @Autowired
+    private RagService ragService;
+    @Autowired
+    private RerankService rerankService;
+    @Autowired
+    private RagDocumentMapper ragDocumentMapper;
 
     /**
      * 文档上传（异步处理）：保存文件 → 插表(PROCESSING) → 立即返回 → 后台异步切分+向量化

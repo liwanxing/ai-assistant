@@ -9,8 +9,9 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.core.io.FileSystemResource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +35,8 @@ public class RagService {
 
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
 
-    private final RagDocumentMapper ragDocumentMapper;
+    @Autowired
+    private RagDocumentMapper ragDocumentMapper;
 
     /**
      * 向量数据库（本项目用 Milvus）
@@ -48,20 +50,16 @@ public class RagService {
      * <p>
      * 一句话：向量数据库 = 存向量的仓库 + 快速找相似向量的索引引擎
      */
-    private final VectorStore vectorStore;
-    private final EmbeddingModel embeddingModel;
+    @Autowired
+    private VectorStore vectorStore;
+    @Autowired
+    private EmbeddingModel embeddingModel;
 
     @Value("${rag.retry.max-attempts:3}")
     private int maxAttempts;
 
     @Value("${rag.retry.delay-ms:5000}")
     private long retryDelayMs;
-
-    public RagService(RagDocumentMapper ragDocumentMapper, VectorStore vectorStore, EmbeddingModel embeddingModel) {
-        this.ragDocumentMapper = ragDocumentMapper;
-        this.vectorStore = vectorStore;
-        this.embeddingModel = embeddingModel;
-    }
 
     /**
      * 异步处理文档：读取 → 切分 → 给 chunk 设置 ID → 向量化 → 存 Milvus → 更新状态

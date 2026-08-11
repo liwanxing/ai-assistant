@@ -6,6 +6,7 @@ import com.liwx.learning.user.dto.UserCreateDTO;
 import com.liwx.learning.user.dto.UserUpdateDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,11 +14,8 @@ import java.util.List;
 @Service
 public class UserService {
 
-    private final UserMapper userMapper;
-
-    public UserService(UserMapper userMapper) {
-        this.userMapper = userMapper;
-    }
+    @Autowired
+    private UserMapper userMapper;
 
     public List<User> getAllUsers() {
         return userMapper.selectAll();
