@@ -67,6 +67,8 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
+        // 此时 MemoryAdvisor 已执行完毕，instructions 包含完整消息列表：
+        // [SYSTEM 系统提示词] + [历史 USER/ASSISTANT 消息] + [当前 USER 消息]
         List<Message> instructions = request.prompt().getInstructions();
 
         // 统计非系统消息数量（系统消息不参与计数）
@@ -93,6 +95,7 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
 
         ConversationSummary existing = summaryMapper.selectBySessionId(sessionId);
 
+        // 把已有摘要 + 本次溢出的旧消息一起传给大模型，生成更新后的完整摘要
         String newSummary;
         try {
             newSummary = doSummarize(existing, overflowMessages);
