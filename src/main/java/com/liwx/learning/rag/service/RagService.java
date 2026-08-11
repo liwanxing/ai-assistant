@@ -34,6 +34,19 @@ public class RagService {
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
 
     private final RagDocumentMapper ragDocumentMapper;
+
+    /**
+     * 向量数据库（本项目用 Milvus）
+     * <p>
+     * 怎么理解向量数据库：
+     * 1. 向量不是它生成的：文本转向量是 EmbeddingModel（通义 text-embedding-v3）干的，
+     *    Milvus 只负责存储。存储本身任何数据库都能做（MySQL、Redis 都能存 float 数组）。
+     * 2. 核心价值在检索：普通数据库做精确匹配（WHERE id=1），向量数据库做相似度检索
+     *    （"和这个问题语义最接近的 10 条记录"），内部用 HNSW 图索引加速，毫秒级返回。
+     * 3. 存的不是表格：存的是 1024 维浮点数数组 + 元数据，为向量计算专门优化了存储结构。
+     * <p>
+     * 一句话：向量数据库 = 存向量的仓库 + 快速找相似向量的索引引擎
+     */
     private final VectorStore vectorStore;
     private final EmbeddingModel embeddingModel;
 

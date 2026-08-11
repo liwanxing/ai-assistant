@@ -4,6 +4,7 @@ import com.liwx.learning.common.Result;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import com.liwx.learning.rag.service.RagService;
+import com.liwx.learning.rag.service.RerankService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -42,13 +43,16 @@ public class RagController {
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
     private final RagService ragService;
+    private final RerankService rerankService;
     private final RagDocumentMapper ragDocumentMapper;
 
     public RagController(ChatClient.Builder chatClientBuilder, VectorStore vectorStore,
-                         RagService ragService, RagDocumentMapper ragDocumentMapper) {
+                         RagService ragService, RerankService rerankService,
+                         RagDocumentMapper ragDocumentMapper) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
         this.ragService = ragService;
+        this.rerankService = rerankService;
         this.ragDocumentMapper = ragDocumentMapper;
     }
 
@@ -119,18 +123,24 @@ public class RagController {
      */
     @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> ask(@RequestParam String question) {
-        // 1. 向量检索：把问题转成向量，去 Milvus 搜最相似的 3 条文档
+        // 1. 向量检索：先从 Milvus 多召回一些候选（topK=10），给 Rerank 留筛选空间
         List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(question)
-                .topK(3)
+                .topK(10)
                 .build());
 
-        // 2. 把搜到的文档内容拼接成一段文本，作为大模型的参考资料
+        // 2. Rerank 重排序：对 10 条候选用专门的排序模型重新打分，取最相关的 3 条
+        // 向量检索是"语义相似度"，Rerank 是"相关性判断"，两者配合效果最好
+        if (!documents.isEmpty()) {
+            documents = rerankService.rerank(question, documents, 3);
+        }
+
+        // 3. 把搜到的文档内容拼接成一段文本，作为大模型的参考资料
         String context = documents.stream()
                 .map(Document::getText)
                 .collect(Collectors.joining("\n\n"));
 
-        // 3. 流式生成：.stream() 替代 .call()，返回 Flux<String>
+        // 4. 流式生成：.stream() 替代 .call()，返回 Flux<String>
         // 大模型每生成一个 token 就通过 SSE 推送一次，不用等全部生成完
         // concatWithValues("[DONE]")：流结束时追加一个结束标记，和 OpenAI 的做法一样
         return chatClient.prompt()
