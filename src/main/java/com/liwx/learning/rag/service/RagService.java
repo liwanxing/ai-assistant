@@ -10,6 +10,7 @@ import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -50,6 +51,12 @@ public class RagService {
     private final VectorStore vectorStore;
     private final EmbeddingModel embeddingModel;
 
+    @Value("${rag.retry.max-attempts:3}")
+    private int maxAttempts;
+
+    @Value("${rag.retry.delay-ms:5000}")
+    private long retryDelayMs;
+
     public RagService(RagDocumentMapper ragDocumentMapper, VectorStore vectorStore, EmbeddingModel embeddingModel) {
         this.ragDocumentMapper = ragDocumentMapper;
         this.vectorStore = vectorStore;
@@ -68,56 +75,88 @@ public class RagService {
      */
     @Async
     public void processDocument(Long documentId, String filePath, String splitStrategy) {
-        try {
-            log.info("开始处理文档, documentId={}, splitStrategy={}", documentId, splitStrategy);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                log.info("开始处理文档, documentId={}, attempt={}/{}, splitStrategy={}",
+                        documentId, attempt, maxAttempts, splitStrategy);
 
-            // 1. Tika 读取文件内容（自动识别 PDF/Word/txt 格式）
-            // 这是生产级方案：Tika 提取纯文本，格式信息（标题/字号）会丢失，但配合切分策略足以覆盖绝大多数场景。
-            // 如果文档格式较差（扫描件或无段落结构），用户可在上传时选择「语义切分」来弥补，
-            // 语义切分不依赖格式，通过 embedding 相似度自动识别话题边界，代价是多耗一些 API 调用。
-            // 早期 RAG 需要复杂的 PDF 结构化解析（提取标题层级、字号、版面布局），有了语义切分后这些方案已被淘汰。
-            TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
-            List<Document> documents = reader.get();
+                int chunkCount = doProcessDocument(documentId, filePath, splitStrategy);
 
-            // 2. 根据策略切分
-            List<Document> chunks;
-            if ("semantic".equals(splitStrategy)) {
-                chunks = splitBySemantic(documents);
-            } else if ("paragraph".equals(splitStrategy)) {
-                chunks = splitByParagraph(documents);
-            } else {
-                TokenTextSplitter splitter = TokenTextSplitter.builder().build();
-                chunks = splitter.apply(documents);
+                // 成功：更新状态，退出循环
+                ragDocumentMapper.updateStatus(documentId, "SUCCESS", chunkCount, null);
+                log.info("文档处理完成, documentId={}, chunks={}", documentId, chunkCount);
+                return;
+
+            } catch (Exception e) {
+                log.warn("文档处理失败, documentId={}, attempt={}/{}, error={}",
+                        documentId, attempt, maxAttempts, e.getMessage());
+
+                if (attempt < maxAttempts) {
+                    // 还有机会重试：等待间隔后再试
+                    log.info("等待 {}ms 后重试...", retryDelayMs);
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        ragDocumentMapper.updateStatus(documentId, "FAILED", 0, "线程被中断");
+                        return;
+                    }
+                } else {
+                    // 最后一次也失败了，标记为 FAILED
+                    log.error("文档处理最终失败, documentId={}", documentId, e);
+                    ragDocumentMapper.updateStatus(documentId, "FAILED", 0, e.getMessage());
+                }
             }
-
-            // 3. 给每个 chunk 设置自定义 ID，关联 documentId
-            // 格式：doc{documentId}_{index}，删除文档时按这个规则构造 ID 列表
-            List<Document> namedChunks = new ArrayList<>();
-            for (int i = 0; i < chunks.size(); i++) {
-                Document original = chunks.get(i);
-                Document named = Document.builder()
-                        .id("doc" + documentId + "_" + i)
-                        .text(original.getText())
-                        .metadata(original.getMetadata())
-                        .build();
-                namedChunks.add(named);
-            }
-
-            // 4. 分批向量化并存入 Milvus（通义 API 每次最多 10 条，Spring AI 内部也会调 embedding）
-            int batchSize = 10;
-            for (int i = 0; i < namedChunks.size(); i += batchSize) {
-                int end = Math.min(i + batchSize, namedChunks.size());
-                vectorStore.add(namedChunks.subList(i, end));
-            }
-
-            // 5. 更新状态为成功
-            ragDocumentMapper.updateStatus(documentId, "SUCCESS", namedChunks.size(), null);
-            log.info("文档处理完成, documentId={}, chunks={}", documentId, namedChunks.size());
-
-        } catch (Exception e) {
-            log.error("文档处理失败, documentId={}", documentId, e);
-            ragDocumentMapper.updateStatus(documentId, "FAILED", 0, e.getMessage());
         }
+    }
+
+    /**
+     * 实际的文档处理逻辑：读取 → 切分 → 设ID → 向量化 → 存 Milvus
+     *
+     * @return 切分后的 chunk 数量
+     * @throws Exception 任何步骤失败都抛异常，由上层 processDocument 决定是否重试
+     */
+    private int doProcessDocument(Long documentId, String filePath, String splitStrategy) throws Exception {
+        // 1. Tika 读取文件内容（自动识别 PDF/Word/txt 格式）
+        // 这是生产级方案：Tika 提取纯文本，格式信息（标题/字号）会丢失，但配合切分策略足以覆盖绝大多数场景。
+        // 如果文档格式较差（扫描件或无段落结构），用户可在上传时选择「语义切分」来弥补，
+        // 语义切分不依赖格式，通过 embedding 相似度自动识别话题边界，代价是多耗一些 API 调用。
+        // 早期 RAG 需要复杂的 PDF 结构化解析（提取标题层级、字号、版面布局），有了语义切分后这些方案已被淘汰。
+        TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
+        List<Document> documents = reader.get();
+
+        // 2. 根据策略切分
+        List<Document> chunks;
+        if ("semantic".equals(splitStrategy)) {
+            chunks = splitBySemantic(documents);
+        } else if ("paragraph".equals(splitStrategy)) {
+            chunks = splitByParagraph(documents);
+        } else {
+            TokenTextSplitter splitter = TokenTextSplitter.builder().build();
+            chunks = splitter.apply(documents);
+        }
+
+        // 3. 给每个 chunk 设置自定义 ID，关联 documentId
+        // 格式：doc{documentId}_{index}，删除文档时按这个规则构造 ID 列表
+        List<Document> namedChunks = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            Document original = chunks.get(i);
+            Document named = Document.builder()
+                    .id("doc" + documentId + "_" + i)
+                    .text(original.getText())
+                    .metadata(original.getMetadata())
+                    .build();
+            namedChunks.add(named);
+        }
+
+        // 4. 分批向量化并存入 Milvus（通义 API 每次最多 10 条，Spring AI 内部也会调 embedding）
+        int batchSize = 10;
+        for (int i = 0; i < namedChunks.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, namedChunks.size());
+            vectorStore.add(namedChunks.subList(i, end));
+        }
+
+        return namedChunks.size();
     }
 
     /**

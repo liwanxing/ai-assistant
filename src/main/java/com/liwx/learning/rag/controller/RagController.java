@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * RAG 问答接口（检索增强生成）
@@ -135,18 +134,23 @@ public class RagController {
             documents = rerankService.rerank(question, documents, 3);
         }
 
-        // 3. 把搜到的文档内容拼接成一段文本，作为大模型的参考资料
-        String context = documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.joining("\n\n"));
+        // 3. 把搜到的文档内容带编号拼接，方便大模型引用时标注来源
+        // 格式：【参考资料1】内容...  【参考资料2】内容...
+        StringBuilder contextBuilder = new StringBuilder();
+        for (int i = 0; i < documents.size(); i++) {
+            contextBuilder.append("【参考资料").append(i + 1).append("】\n")
+                    .append(documents.get(i).getText())
+                    .append("\n\n");
+        }
 
         // 4. 流式生成：.stream() 替代 .call()，返回 Flux<String>
         // 大模型每生成一个 token 就通过 SSE 推送一次，不用等全部生成完
         // concatWithValues("[DONE]")：流结束时追加一个结束标记，和 OpenAI 的做法一样
         return chatClient.prompt()
                 .system("你是一个知识库问答助手。请根据以下参考资料回答用户的问题。" +
+                        "回答时请在引用的内容后面标注来源，格式如[1]、[2]，对应参考资料的编号。" +
                         "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
-                .user("参考资料：\n" + context + "\n\n问题：" + question)
+                .user("参考资料：\n" + contextBuilder + "\n\n问题：" + question)
                 .stream()
                 .content()
                 .concatWithValues("[DONE]");

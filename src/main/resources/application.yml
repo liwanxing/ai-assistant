@@ -66,6 +66,9 @@ rag:
   upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹
   rerank:
     model: gte-rerank-v2  # 通义重排序模型，对检索结果按相关性重新打分排序
+  retry:
+    max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
+    delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打
 
 # Sa-Token 配置
 sa-token:
