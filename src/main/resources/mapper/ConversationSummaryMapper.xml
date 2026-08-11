@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liwx.learning.rag.mapper.ConversationSummaryMapper">
+
+    <select id="selectBySessionId" resultType="com.liwx.learning.rag.entity.ConversationSummary">
+        SELECT id, session_id, summary, summarized_up_to, update_time
+        FROM rag_conversation_summary
+        WHERE session_id = #{sessionId}
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO rag_conversation_summary (session_id, summary, summarized_up_to)
+        VALUES (#{sessionId}, #{summary}, #{summarizedUpTo})
+        ON DUPLICATE KEY UPDATE
+            summary = #{summary},
+            summarized_up_to = #{summarizedUpTo}
+    </insert>
+
+</mapper>

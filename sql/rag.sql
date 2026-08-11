@@ -20,3 +20,19 @@ CREATE TABLE rag_document (
     update_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     deleted       TINYINT      NOT NULL DEFAULT 0      COMMENT '逻辑删除 0未删除 1已删除'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RAG文档管理表';
+
+-- =============================================
+-- 对话摘要表：当对话超过窗口大小时，旧消息被压缩成摘要存这里
+-- 避免长对话丢失上下文（MessageWindowChatMemory 超过 maxMessages 会直接丢弃旧消息）
+-- =============================================
+
+DROP TABLE IF EXISTS rag_conversation_summary;
+
+CREATE TABLE rag_conversation_summary (
+    id              BIGINT       PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    session_id      VARCHAR(36)  NOT NULL                COMMENT '会话ID（对应 ChatMemory 的 conversationId）',
+    summary         TEXT                                 COMMENT 'LLM 生成的对话摘要',
+    summarized_up_to INT          NOT NULL DEFAULT 0      COMMENT '已摘要到第几条消息（追踪进度，避免重复摘要）',
+    update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长对话摘要表';

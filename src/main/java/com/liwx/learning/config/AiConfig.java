@@ -1,11 +1,14 @@
 package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ChatLoggingAdvisor;
+import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
+import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -26,7 +29,7 @@ public class AiConfig {
     public ChatMemory chatMemory(JdbcChatMemoryRepository repository) {
         return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
-                .maxMessages(20)
+                .maxMessages(30)  // 30 = 摘要缓冲区：ConversationSummaryAdvisor 只取最近 20 条，多出 10 条用来压缩
                 .build();
     }
 
@@ -35,10 +38,12 @@ public class AiConfig {
      * 以前需要手动 new OpenAiApi + OpenAiChatModel 传 model/key，现在 Builder 自动注入，build() 就行
      */
     @Bean
-    public ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory) {
+    public ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
+                                 ChatModel chatModel, ConversationSummaryMapper summaryMapper) {
         return builder
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
+                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),
                         new ChatLoggingAdvisor()
                 )
                 .build();
