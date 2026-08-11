@@ -43,7 +43,7 @@ public class AiConfig {
         return builder
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),
+                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 5),  // TODO 测试值，正式改回 20
                         new ChatLoggingAdvisor()
                 )
                 .build();

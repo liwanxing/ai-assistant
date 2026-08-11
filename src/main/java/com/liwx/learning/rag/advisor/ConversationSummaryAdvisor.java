@@ -47,26 +47,29 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     /**
-     * 同步调用：BEFORE 阶段压缩摘要，AFTER 阶段不做处理（只改 request 不看 response）
-     * 这里没有用到 AFTER，因为摘要逻辑只关心发给大模型的请求，不关心大模型的回答
-     */
-    @Override
-    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-        // BEFORE：检查消息数量，溢出则压缩摘要，修改 request
-        ChatClientRequest processed = processSummary(request);
-        // 调大模型，拿到结果后直接返回（本 Advisor 不需要看 response）
-        return chain.nextCall(processed);
-    }
-
-    /**
-     * 流式调用（SSE）：和 adviseCall 一样只做 BEFORE，processSummary 是同步的所以两种调用共用同一套逻辑
+     * 流式调用（SSE）：本项目 RAG 问答走的就是这条路径
+     *
+     * 为什么用 adviseStream/adviseCall 而不是 before？
+     * before() 只能在调大模型之前改 request，改完就结束了，拿不到大模型的回答。
+     * adviseCall() 是环绕通知（类似 Spring AOP @Around）：
+     *   chain.nextCall() 之前 = before（改请求），之后 = after（拿结果）。
+     * 每个 Advisor 调了 chain.nextCall() 都能拿到大模型的返回值，
+     * 区别只在于你看的是原始的还是被加工过的，以及你用不用这个结果。
+     * 本 Advisor 只改 request（压缩摘要），不需要看 response，所以没用 after。
      */
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        // BEFORE：压缩摘要
         ChatClientRequest processed = processSummary(request);
-        // 流式返回，不拦截 response
         return chain.nextStream(processed);
+    }
+
+    /**
+     * 同步调用：逻辑和流式一样，本项目暂未用到
+     */
+    @Override
+    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        ChatClientRequest processed = processSummary(request);
+        return chain.nextCall(processed);
     }
 
     /**
