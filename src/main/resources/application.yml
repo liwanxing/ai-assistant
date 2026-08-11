@@ -21,6 +21,11 @@ spring:
 
   # Spring AI：用 OpenAI 兼容协议接通义 DashScope（chat + embedding 都走这个）
   # key 用占位符，真实值在 application-local.yml 或环境变量里
+  #
+  # 切换模型只需改下面的 model 名，不用动 Java 代码：
+  #   qwen-plus → 通义千问、deepseek-r1 → DeepSeek、gpt-4o → OpenAI
+  #   换平台还要改 base-url 和 api-key
+  # AiConfig 里的 ChatClient.Builder 会自动读取这里的配置
   ai:
     openai:
       api-key: ${AI_API_KEY:sk-placeholder}
