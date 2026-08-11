@@ -1,9 +1,13 @@
 package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.Result;
+import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
+import com.liwx.learning.rag.mapper.ChatSessionMapper;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
 import com.liwx.learning.rag.service.RerankService;
 import org.springframework.ai.chat.client.ChatClient;
@@ -26,6 +30,8 @@ import reactor.core.publisher.Flux;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -46,6 +52,10 @@ public class RagController {
     private RagService ragService;
     @Autowired
     private RerankService rerankService;
+    @Autowired
+    private ChatMemory chatMemory;
+    @Autowired
+    private ChatSessionMapper chatSessionMapper;
     @Autowired
     private RagDocumentMapper ragDocumentMapper;
 
@@ -114,6 +124,16 @@ public class RagController {
      */
     @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId) {
+        // 0. 会话管理：首次提问自动创建会话记录（标题取用户问题前 20 字），已有会话则刷新活跃时间
+        // 这样左侧会话列表才能展示历史会话
+        ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);
+        if (existingSession == null) {
+            String title = question.length() > 20 ? question.substring(0, 20) + "..." : question;
+            chatSessionMapper.insertIfNotExists(sessionId, title);
+        } else {
+            chatSessionMapper.updateActiveTime(sessionId);
+        }
+
         // 1. 向量检索：先从 Milvus 多召回一些候选（topK=10），给 Rerank 留筛选空间
         List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
                 .query(question)
@@ -136,14 +156,59 @@ public class RagController {
         }
 
         // 4. 流式生成 + 多轮记忆：advisors 传入 sessionId，Advisor 自动从 MySQL 加载历史拼到 prompt 里
+        // 参考资料放 system prompt（SYSTEM 消息不展示给用户），user 只传纯问题
+        // 这样 ChatMemory 存的 USER 消息是干净的用户问题，查询历史时不会带出一堆参考资料
         return chatClient.prompt()
                 .system("你是一个知识库问答助手。请根据以下参考资料回答用户的问题。" +
                         "回答时请在引用的内容后面标注来源，格式如[1]、[2]，对应参考资料的编号。" +
-                        "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
-                .user("参考资料：\n" + contextBuilder + "\n\n问题：" + question)
+                        "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。" +
+                        "\n\n参考资料：\n" + contextBuilder)
+                .user(question)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, sessionId))
                 .stream()
                 .content()
                 .concatWithValues("[DONE]");
+    }
+
+    /**
+     * 会话列表：查询所有历史会话，按最后活跃时间倒序
+     * 前端左侧栏展示用
+     */
+    @GetMapping("/sessions")
+    public Result<List<ChatSession>> sessions() {
+        return Result.success(chatSessionMapper.selectAll());
+    }
+
+    /**
+     * 消息记录：查询某个会话的所有聊天消息
+     * 前端点击历史会话时调用，把消息加载到聊天区
+     * 续聊原理：前端拿这个 sessionId 继续调 /ask，后端 ChatMemory 自动加载历史上下文
+     */
+    @GetMapping("/sessions/{sessionId}/messages")
+    public Result<List<Map<String, String>>> messages(@PathVariable String sessionId) {
+        // ChatMemory 按 sessionId 从 SPRING_AI_CHAT_MEMORY 表加载所有消息
+        List<Message> history = chatMemory.get(sessionId);
+        // 转成前端需要的格式：过滤掉 SYSTEM 消息（系统提示词不需要展示）
+        List<Map<String, String>> result = new ArrayList<>();
+        for (Message msg : history) {
+            if (msg.getMessageType() == MessageType.SYSTEM) {
+                continue;
+            }
+            Map<String, String> item = new HashMap<>();
+            item.put("role", msg.getMessageType() == MessageType.USER ? "user" : "ai");
+            item.put("content", msg.getText());
+            result.add(item);
+        }
+        return Result.success(result);
+    }
+
+    /**
+     * 删除会话：删 rag_chat_session 记录 + 清空 SPRING_AI_CHAT_MEMORY 里的消息
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    public Result<Void> deleteSession(@PathVariable String sessionId) {
+        chatSessionMapper.deleteBySessionId(sessionId);
+        chatMemory.clear(sessionId);
+        return Result.success();
     }
 }

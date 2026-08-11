@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liwx.learning.rag.mapper.ChatSessionMapper">
+
+    <resultMap id="ChatSessionResultMap" type="com.liwx.learning.rag.entity.ChatSession">
+        <id property="id" column="id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="title" column="title"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <!-- 查询所有会话，按最后活跃时间倒序 -->
+    <select id="selectAll" resultMap="ChatSessionResultMap">
+        SELECT id, session_id, title, create_time, update_time
+        FROM rag_chat_session
+        ORDER BY update_time DESC
+    </select>
+
+    <!-- 按 sessionId 查询 -->
+    <select id="selectBySessionId" resultMap="ChatSessionResultMap">
+        SELECT id, session_id, title, create_time, update_time
+        FROM rag_chat_session
+        WHERE session_id = #{sessionId}
+    </select>
+
+    <!-- 新建会话：不存在才插入（uk_session 唯一索引 + IGNORE 防重复） -->
+    <insert id="insertIfNotExists">
+        INSERT IGNORE INTO rag_chat_session (session_id, title)
+        VALUES (#{sessionId}, #{title})
+    </insert>
+
+    <!-- 更新最后活跃时间 -->
+    <update id="updateActiveTime">
+        UPDATE rag_chat_session SET update_time = NOW() WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 删除会话（只删 rag_chat_session，消息内容在 Controller 用 ChatMemory.clear 删除） -->
+    <delete id="deleteBySessionId">
+        DELETE FROM rag_chat_session WHERE session_id = #{sessionId}
+    </delete>
+
+</mapper>

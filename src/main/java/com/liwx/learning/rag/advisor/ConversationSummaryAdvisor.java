@@ -49,13 +49,14 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     /**
      * 流式调用（SSE）：本项目 RAG 问答走的就是这条路径
      *
-     * 为什么用 adviseStream/adviseCall 而不是 before？
+     * adviseStream/adviseCall 和 before区别
      * before() 只能在调大模型之前改 request，改完就结束了，拿不到大模型的回答。
      * adviseCall() 是环绕通知（类似 Spring AOP @Around）：
-     *   chain.nextCall() 之前 = before（改请求），之后 = after（拿结果）。
+     * chain.nextCall() 之前 = before（改请求），之后 = after（拿结果）。
+     *
      * 每个 Advisor 调了 chain.nextCall() 都能拿到大模型的返回值，
      * 区别只在于你看的是原始的还是被加工过的，以及你用不用这个结果。
-     * 本 Advisor 只改 request（压缩摘要），不需要看 response，所以没用 after。
+     * 本 Advisor 只改 request（压缩摘要），不需要看 response，所以没处理 response。
      */
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {

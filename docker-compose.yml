@@ -35,7 +35,9 @@ services:
       # 数据持久化：把 /var/lib/mysql 存到命名卷，down 容器数据不丢
       - mysql_data:/var/lib/mysql
       # 初始化脚本：容器首次启动时自动执行（仅首次，已有数据卷时跳过）
-      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql:ro
+      # MySQL 官方镜像按文件名字母序执行，rbac 在 rag 之前
+      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/01-rbac.sql:ro
+      - ./sql/rag.sql:/docker-entrypoint-initdb.d/02-rag.sql:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci

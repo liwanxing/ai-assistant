@@ -36,3 +36,21 @@ CREATE TABLE rag_conversation_summary (
     update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     UNIQUE KEY uk_session (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长对话摘要表';
+
+-- =============================================
+-- 会话管理表：记录每次对话的元信息（标题、时间），用于左侧历史会话列表展示
+-- 和 SPRING_AI_CHAT_MEMORY（存消息内容）配合使用：
+--   SPRING_AI_CHAT_MEMORY = 存聊天消息本身（Spring AI 自动管理）
+--   rag_chat_session      = 存会话的标题、时间等展示信息（我们自己管理）
+-- =============================================
+
+DROP TABLE IF EXISTS rag_chat_session;
+
+CREATE TABLE rag_chat_session (
+    id              BIGINT       PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    session_id      VARCHAR(36)  NOT NULL                COMMENT '会话ID（对应 ChatMemory 的 conversationId）',
+    title           VARCHAR(100) NOT NULL DEFAULT '新对话'  COMMENT '会话标题（取用户第一句话的前若干字）',
+    create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活跃时间',
+    UNIQUE KEY uk_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会话管理表';

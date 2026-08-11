@@ -37,7 +37,9 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/rbac.sql:ro
+      # 初始化脚本：MySQL 官方镜像按文件名字母序执行
+      - ./sql/rbac.sql:/docker-entrypoint-initdb.d/01-rbac.sql:ro
+      - ./sql/rag.sql:/docker-entrypoint-initdb.d/02-rag.sql:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
