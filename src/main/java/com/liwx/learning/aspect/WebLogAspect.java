@@ -9,16 +9,7 @@ import org.springframework.stereotype.Component;
 import java.util.Arrays;
 
 /**
- * AOP 日志切面
- *
- * AOP 三步走：
- *   1. @Aspect     → 声明这是一个切面
- *   2. @Around(...) → 切点（给哪些方法加）+ 通知（什么时候加）
- *   3. 方法体       → 具体加什么功能
- *
- * 做了什么：
- *   所有 Controller 方法执行时，自动记录：方法名、参数、耗时、返回值
- *   不用改任何 Controller 代码，日志自动加上
+ * AOP 日志切面：所有 Controller 方法自动记录方法名、参数、耗时、返回值
  */
 @Slf4j
 @Aspect
@@ -27,10 +18,6 @@ public class WebLogAspect {
 
     /**
      * 环绕通知：包住目标方法，前面记开始时间，后面记耗时和返回值
-     *
-     * 切点表达式解释：
-     *   execution(* com.liwx.learning..controller..*.*(..))
-     *   → 任意模块（user/rag/...）下 controller 包的所有类的所有方法
      */
     @Around("execution(* com.liwx.learning..controller..*.*(..))")
     public Object logAround(ProceedingJoinPoint joinPoint) throws Throwable {

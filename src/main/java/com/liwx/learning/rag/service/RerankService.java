@@ -1,7 +1,6 @@
 package com.liwx.learning.rag.service;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -13,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,10 +26,9 @@ import java.util.Map;
  * 用 Rerank：用户问题 → Milvus 检索 topK=10 → Rerank 重排序 → 取最相关 topK=3 → 给大模型
  * 通义 Rerank API 不是 OpenAI 兼容格式，是 DashScope 自己的接口，需要手动调 HTTP
  */
+@Slf4j
 @Service
 public class RerankService {
-
-    private static final Logger log = LoggerFactory.getLogger(RerankService.class);
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -38,6 +37,54 @@ public class RerankService {
 
     @Value("${rag.rerank.model:gte-rerank-v2}")
     private String rerankModel;
+
+    /**
+     * 调用通义 Rerank API
+     * {
+     *   "model": "gte-rerank-v2",
+     *   "input": {
+     *     "query": "用户的问题",
+     *     "documents": ["文档1内容", "文档2内容", ...]
+     *   },
+     *   "parameters": {
+     *     "top_n": 3,
+     *     "return_documents": false
+     *   }
+     * }
+     * {
+     *   "output": {
+     *     "results": [
+     *       {"index": 2, "relevance_score": 0.95},
+     *       {"index": 0, "relevance_score": 0.87}
+     *     ]
+     *   }
+     * }
+     */
+    @SuppressWarnings("unchecked")
+    private ResponseEntity<Map> callRerankApi(String query, List<String> docTexts, int topN) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + apiKey);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", rerankModel);
+
+        Map<String, Object> input = new HashMap<>();
+        input.put("query", query);
+        input.put("documents", docTexts);
+        body.put("input", input);
+
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("top_n", topN);
+        parameters.put("return_documents", false);
+        body.put("parameters", parameters);
+
+        String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+        log.info("Rerank 请求: query={}, 候选文档={} 条, topN={}", query, docTexts.size(), topN);
+        return restTemplate.exchange(rerankUrl, HttpMethod.POST, entity, Map.class);
+    }
 
     /**
      * 对检索结果重排序
@@ -54,30 +101,9 @@ public class RerankService {
         }
 
         try {
-            // 1. 构造请求
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("Authorization", "Bearer " + apiKey);
-
+            // 1. 调用 Rerank API
             List<String> docTexts = documents.stream().map(Document::getText).toList();
-            Map<String, Object> body = Map.of(
-                    "model", rerankModel,
-                    "input", Map.of(
-                            "query", query,
-                            "documents", docTexts
-                    ),
-                    "parameters", Map.of(
-                            "top_n", topN,
-                            "return_documents", false
-                    )
-            );
-
-            // 2. 调用通义 Rerank API
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-            String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
-            log.info("Rerank 请求: query={}, 候选文档={} 条, topN={}", query, documents.size(), topN);
-
-            ResponseEntity<Map> response = restTemplate.exchange(rerankUrl, HttpMethod.POST, entity, Map.class);
+            ResponseEntity<Map> response = callRerankApi(query, docTexts, topN);
             Map<String, Object> responseBody = response.getBody();
 
             if (responseBody == null) {
@@ -85,19 +111,17 @@ public class RerankService {
                 return documents.subList(0, Math.min(topN, documents.size()));
             }
 
-            // 3. 解析结果：output.results 是一个数组，每项含 index（原文档索引）和 relevance_score（相关性分数）
+            // 2. 按 index 取原始文档，记录分数
             Map<String, Object> output = (Map<String, Object>) responseBody.get("output");
             List<Map<String, Object>> results = (List<Map<String, Object>>) output.get("results");
 
-            // 4. 按 Rerank 返回的 index 取原始文档，组装结果
             List<Document> reranked = new ArrayList<>();
             for (Map<String, Object> result : results) {
                 int index = ((Number) result.get("index")).intValue();
                 double score = ((Number) result.get("relevance_score")).doubleValue();
                 Document doc = documents.get(index);
-                doc.getMetadata().put("rerank_score", score);  // 记录分数到 metadata
+                doc.getMetadata().put("rerank_score", score);
                 reranked.add(doc);
-                log.info("Rerank 结果: index={}, score={}", index, score);
             }
 
             log.info("Rerank 完成: {} 条候选 → {} 条精选", documents.size(), reranked.size());
@@ -105,7 +129,6 @@ public class RerankService {
 
         } catch (Exception e) {
             log.error("Rerank 调用失败，降级使用原始检索顺序: {}", e.getMessage());
-            // 降级策略：Rerank 失败不影响服务，用原始检索结果的前 topN 条
             return documents.subList(0, Math.min(topN, documents.size()));
         }
     }
