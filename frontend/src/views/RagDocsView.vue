@@ -32,12 +32,12 @@ const uploading = ref(false)
 const fileInputRef = ref(null)
 
 // 切分方式：token = 按 token 数量硬切，paragraph = 按段落切分
-const splitStrategy = ref('semantic')
+const splitStrategy = ref('TOKEN')
 
 const strategyOptions = [
-  { label: '语义切分', value: 'semantic' },
-  { label: '段落切分', value: 'paragraph' },
-  { label: 'Token切分', value: 'token' },
+  { label: '语义切分', value: 'SEMANTIC' },
+  { label: '段落切分', value: 'PARAGRAPH' },
+  { label: 'Token切分', value: 'TOKEN' },
 ]
 
 const triggerFileSelect = () => {

@@ -62,7 +62,7 @@ public class RagController {
     @PostMapping("/upload")
     public Result<Map<String, Object>> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "splitStrategy", defaultValue = "token") SplitStrategy splitStrategy) throws Exception {
+            @RequestParam(value = "splitStrategy", defaultValue = "TOKEN") SplitStrategy splitStrategy) throws Exception {
         // 1. 保存文件到本地
         String originalName = file.getOriginalFilename();
         String ext = originalName.substring(originalName.lastIndexOf("."));  // 取扩展名：.pdf

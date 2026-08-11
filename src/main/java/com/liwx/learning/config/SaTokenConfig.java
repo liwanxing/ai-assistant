@@ -20,6 +20,7 @@ public class SaTokenConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkLogin()))
                 .addPathPatterns("/**")           // 拦截所有路径
-                .excludePathPatterns("/login", "/ai/test");  // 这些路径不需要登录
+                // /rag/ask 是 SSE 流式接口，异步 dispatch 时 Sa-Token 上下文已销毁会报错，必须排除
+                .excludePathPatterns("/login", "/ai/test", "/rag/ask");
     }
 }
