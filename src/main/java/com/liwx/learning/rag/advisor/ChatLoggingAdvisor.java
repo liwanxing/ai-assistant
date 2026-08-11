@@ -36,14 +36,21 @@ public class ChatLoggingAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     private void logRequest(ChatClientRequest request) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
         List<Message> messages = request.prompt().getInstructions();
-        log.info("=== 发送给大模型的消息（共{}条）===", messages.size());
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n========== 发送给大模型（共").append(messages.size()).append("条）==========");
         for (int i = 0; i < messages.size(); i++) {
             Message msg = messages.get(i);
             String text = msg.getText();
             String preview = text.length() > 80 ? text.substring(0, 80) + "..." : text;
-            log.info("  {}. [{}] {}", i + 1, msg.getMessageType(), preview);
+            sb.append("\n  ").append(i + 1).append(". [")
+              .append(msg.getMessageType()).append("] ").append(preview);
         }
+        sb.append("\n==========================================");
+        log.debug(sb.toString());
     }
 
     @Override
