@@ -46,10 +46,10 @@ public class RagController {
     private final RerankService rerankService;
     private final RagDocumentMapper ragDocumentMapper;
 
-    public RagController(ChatClient.Builder chatClientBuilder, VectorStore vectorStore,
+    public RagController(ChatClient chatClient, VectorStore vectorStore,
                          RagService ragService, RerankService rerankService,
                          RagDocumentMapper ragDocumentMapper) {
-        this.chatClient = chatClientBuilder.build();
+        this.chatClient = chatClient;
         this.vectorStore = vectorStore;
         this.ragService = ragService;
         this.rerankService = rerankService;

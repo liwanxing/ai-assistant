@@ -26,10 +26,9 @@ public class AiController {
 
     private final ChatClient chatClient;
 
-    // 注入 ChatClient.Builder（Spring AI 自动配置提供的 Bean），build 一次复用
-    // ChatClient 是面向用户的主 API，Builder 是它的构造器
-    public AiController(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.build();
+    // 直接注入 AiConfig 里 build 好的 ChatClient
+    public AiController(ChatClient chatClient) {
+        this.chatClient = chatClient;
     }
 
     /**
