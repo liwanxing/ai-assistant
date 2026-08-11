@@ -46,15 +46,26 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
         this.keepRecent = keepRecent;
     }
 
+    /**
+     * 同步调用：BEFORE 阶段压缩摘要，AFTER 阶段不做处理（只改 request 不看 response）
+     * 这里没有用到 AFTER，因为摘要逻辑只关心发给大模型的请求，不关心大模型的回答
+     */
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        // BEFORE：检查消息数量，溢出则压缩摘要，修改 request
         ChatClientRequest processed = processSummary(request);
+        // 调大模型，拿到结果后直接返回（本 Advisor 不需要看 response）
         return chain.nextCall(processed);
     }
 
+    /**
+     * 流式调用（SSE）：和 adviseCall 一样只做 BEFORE，processSummary 是同步的所以两种调用共用同一套逻辑
+     */
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
+        // BEFORE：压缩摘要
         ChatClientRequest processed = processSummary(request);
+        // 流式返回，不拦截 response
         return chain.nextStream(processed);
     }
 
