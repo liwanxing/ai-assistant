@@ -125,8 +125,8 @@ public class RagService {
             default -> chunks = TokenTextSplitter.builder().build().apply(documents);
         }
 
-        // 3. 给每个 chunk 设置自定义 ID，关联 documentId
-        // 格式：doc{documentId}_{index}，删除文档时按这个规则构造 ID 列表
+        // 3. 给每个 chunk 设置自定义 ID（doc{documentId}_{index}）
+        // Document 是不可变对象，没有 setId，只能用 builder 重新构建，把原文和元数据拷贝过去
         List<Document> namedChunks = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             Document original = chunks.get(i);
