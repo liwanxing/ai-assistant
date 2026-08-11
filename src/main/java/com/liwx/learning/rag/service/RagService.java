@@ -75,6 +75,7 @@ public class RagService {
             // 这是生产级方案：Tika 提取纯文本，格式信息（标题/字号）会丢失，但配合切分策略足以覆盖绝大多数场景。
             // 如果文档格式较差（扫描件或无段落结构），用户可在上传时选择「语义切分」来弥补，
             // 语义切分不依赖格式，通过 embedding 相似度自动识别话题边界，代价是多耗一些 API 调用。
+            // 早期 RAG 需要复杂的 PDF 结构化解析（提取标题层级、字号、版面布局），有了语义切分后这些方案已被淘汰。
             TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
             List<Document> documents = reader.get();
 
