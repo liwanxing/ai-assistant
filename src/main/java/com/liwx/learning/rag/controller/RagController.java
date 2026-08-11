@@ -52,11 +52,8 @@ public class RagController {
     private RagDocumentMapper ragDocumentMapper;
 
     /**
-     * 文档上传（异步处理）：保存文件 → 插表(PROCESSING) → 立即返回 → 后台异步切分+向量化
-     * <p>
-     * 和之前同步上传的区别：
-     * - 旧：上传后等十几秒（解析+切分+向量化），用户一直等
-     * - 新：上传后立即返回"处理中"，后台异步处理，前端轮询状态
+     * 文档上传（异步）：保存文件 → 插表(PROCESSING) → 立即返回 → 后台异步切分+向量化
+     * 前端轮询 /rag/documents 看 PROCESSING → SUCCESS 的状态变化
      */
     @PostMapping("/upload")
     public Result<Map<String, Object>> upload(
@@ -110,11 +107,8 @@ public class RagController {
 
     /**
      * RAG 问答（流式）：根据知识库内容回答用户问题，AI 回答逐字输出
-     * <p>
      * 用法：GET /rag/ask?question=请假怎么请？
      * 返回格式：text/event-stream（SSE），每条消息格式为 data:文字片段\n\n
-     * <p>
-     * 和同步返回的区别：.call() 等全部生成完再返回，.stream() 生成一个 token 就推一个
      */
     @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> ask(@RequestParam String question) {
