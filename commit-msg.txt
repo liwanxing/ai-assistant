@@ -1,5 +1,0 @@
-删除 /agent/test 同步测试端点
-
-SimpleLoggerAdvisor 已覆盖流式接口的日志记录，
-无需维护独立的同步测试端点。
-同步清理 test-api.http 中对应的测试请求。

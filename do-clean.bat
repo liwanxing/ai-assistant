@@ -1,5 +1,5 @@
 @echo off
 cd /d D:\Code\liwanxing-learning-projects
 git add -A
-git commit -F commit-msg.txt
+git commit -m "remove temp files"
 git push origin main
