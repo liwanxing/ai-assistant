@@ -139,9 +139,8 @@ public class AgentController {
      * 流式测试端点（直连 ChatModel）：绕过 ChatClient 和 Advisor 链
      * 用于定位问题：tools 在流式模式下丢失，到底是在 Advisor 链层还是在 ChatModel/API 层
      */
-    @PostMapping("/test-tool-stream")
-    public String testToolStream(@RequestBody Map<String, String> body) {
-        String question = body.getOrDefault("question", "现在几点");
+    @GetMapping("/test-tool-stream")
+    public String testToolStream(@RequestParam(defaultValue = "现在几点") String question) {
         log.info("=== 流式直连测试开始 ===");
         log.info("question={}", question);
 
