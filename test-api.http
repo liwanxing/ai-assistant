@@ -148,14 +148,7 @@ GET http://localhost:8080/logout?satoken={{admin_token}}
 GET http://localhost:8080/users?satoken={{admin_token}}
 
 
-### ========== RAG / AI 测试 ==========
-
-### AI 对话测试（通义 qwen-plus）— 中文
-GET http://localhost:8080/ai/test?question=你好
-
-### AI 对话测试 — 英文（排查中文编码问题）
-GET http://localhost:8080/ai/test?question=hello
-
+### ========== RAG / Agent 测试 ==========
 
 ### 上传文档到知识库（会自动切分并存入 Milvus）
 POST http://localhost:8080/rag/upload

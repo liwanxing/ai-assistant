@@ -39,6 +39,6 @@ public class SaTokenConfig implements WebMvcConfigurer {
             }
         })
         .addPathPatterns("/**")
-        .excludePathPatterns("/login", "/ai/test");
+        .excludePathPatterns("/login");
     }
 }

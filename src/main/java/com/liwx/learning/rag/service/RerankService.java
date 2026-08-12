@@ -3,13 +3,8 @@ package com.liwx.learning.rag.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,61 +25,15 @@ import java.util.Map;
 @Service
 public class RerankService {
 
-    private final RestTemplate restTemplate = new RestTemplate();
-
     @Value("${spring.ai.openai.api-key}")
     private String apiKey;
 
     @Value("${rag.rerank.model:gte-rerank-v2}")
     private String rerankModel;
 
-    /**
-     * 调用通义 Rerank API
-     * {
-     *   "model": "gte-rerank-v2",
-     *   "input": {
-     *     "query": "用户的问题",
-     *     "documents": ["文档1内容", "文档2内容", ...]
-     *   },
-     *   "parameters": {
-     *     "top_n": 3,
-     *     "return_documents": false
-     *   }
-     * }
-     * {
-     *   "output": {
-     *     "results": [
-     *       {"index": 2, "relevance_score": 0.95},
-     *       {"index": 0, "relevance_score": 0.87}
-     *     ]
-     *   }
-     * }
-     */
-    @SuppressWarnings("unchecked")
-    private ResponseEntity<Map> callRerankApi(String query, List<String> docTexts, int topN) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Bearer " + apiKey);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", rerankModel);
-
-        Map<String, Object> input = new HashMap<>();
-        input.put("query", query);
-        input.put("documents", docTexts);
-        body.put("input", input);
-
-        Map<String, Object> parameters = new HashMap<>();
-        parameters.put("top_n", topN);
-        parameters.put("return_documents", false);
-        body.put("parameters", parameters);
-
-        String rerankUrl = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-
-        log.info("Rerank 请求: query={}, 候选文档={} 条, topN={}", query, docTexts.size(), topN);
-        return restTemplate.exchange(rerankUrl, HttpMethod.POST, entity, Map.class);
-    }
+    private final RestClient restClient = RestClient.builder()
+            .baseUrl("https://dashscope.aliyuncs.com")
+            .build();
 
     /**
      * 对检索结果重排序
@@ -101,17 +50,37 @@ public class RerankService {
         }
 
         try {
-            // 1. 调用 Rerank API
             List<String> docTexts = documents.stream().map(Document::getText).toList();
-            ResponseEntity<Map> response = callRerankApi(query, docTexts, topN);
-            Map<String, Object> responseBody = response.getBody();
+
+            Map<String, Object> input = new HashMap<>();
+            input.put("query", query);
+            input.put("documents", docTexts);
+
+            Map<String, Object> parameters = new HashMap<>();
+            parameters.put("top_n", topN);
+            parameters.put("return_documents", false);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", rerankModel);
+            body.put("input", input);
+            body.put("parameters", parameters);
+
+            log.info("Rerank 请求: query={}, 候选文档={} 条, topN={}", query, docTexts.size(), topN);
+
+            Map<String, Object> responseBody = restClient.post()
+                    .uri("/api/v1/services/rerank/text-rerank/text-rerank")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
 
             if (responseBody == null) {
                 log.warn("Rerank 返回空，使用原始顺序的前 {} 条", topN);
                 return documents.subList(0, Math.min(topN, documents.size()));
             }
 
-            // 2. 按 index 取原始文档，记录分数
+            // 按 index 取原始文档，记录分数
             Map<String, Object> output = (Map<String, Object>) responseBody.get("output");
             List<Map<String, Object>> results = (List<Map<String, Object>>) output.get("results");
 
