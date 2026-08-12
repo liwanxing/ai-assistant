@@ -2,12 +2,14 @@ package com.liwx.learning.user.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
+import com.liwx.learning.user.dto.LoginDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -34,15 +36,16 @@ public class AuthController {
 
     /**
      * 登录：查数据库验证账号密码，成功后 Sa-Token 自动生成 token
+     * 用 POST：密码在请求体里，不会出现在 URL、浏览器历史、服务器日志中
      */
-    @GetMapping("/login")
-    public Result<Map<String, String>> login(@RequestParam String username, @RequestParam String password) {
-        User user = userMapper.selectByUsername(username);
+    @PostMapping("/login")
+    public Result<Map<String, String>> login(@RequestBody LoginDTO loginDTO) {
+        User user = userMapper.selectByUsername(loginDTO.getUsername());
         if (user == null) {
             return Result.error(401, "账号或密码错误");
         }
         // BCrypt 校验：matches(明文, 哈希值)
-        if (!passwordEncoder.matches(password, user.getPassword())) {
+        if (!passwordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
             return Result.error(401, "账号或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {

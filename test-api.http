@@ -1,28 +1,52 @@
 ### ========== 登录（3个用户） ==========
 
 ### 登录 admin（管理员）
-GET http://localhost:8080/login?username=admin&password=123456
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "123456"
+}
 
 > {%
     client.global.set("admin_token", response.body.data.tokenValue);
 %}
 
 ### 登录 zhangsan（编辑者）
-GET http://localhost:8080/login?username=zhangsan&password=123456
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "zhangsan",
+  "password": "123456"
+}
 
 > {%
     client.global.set("zhangsan_token", response.body.data.tokenValue);
 %}
 
 ### 登录 lisi（访客）
-GET http://localhost:8080/login?username=lisi&password=123456
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "lisi",
+  "password": "123456"
+}
 
 > {%
     client.global.set("lisi_token", response.body.data.tokenValue);
 %}
 
 ### 登录错误密码（应该 401）
-GET http://localhost:8080/login?username=admin&password=wrong
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "wrong"
+}
 
 
 ### ========== 查询用户（需要 user:list 权限） ==========

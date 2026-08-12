@@ -15,7 +15,7 @@ const loginForm = ref({
 // 按钮加载状态：点击登录后变 true，请求结束变 false
 const loading = ref(false)
 
-// 登录方法：调后端 GET /login?username=xxx&password=xxx
+// 登录方法：POST /login，密码在请求体里（不在 URL 中暴露）
 // 后端返回 { code: 200, data: { tokenName, tokenValue } }
 const handleLogin = async () => {
   // 基本校验：空值不放过
@@ -24,13 +24,11 @@ const handleLogin = async () => {
   }
   loading.value = true
   try {
-    // request.get 会经过拦截器：自动加 token、自动处理错误
+    // request.post 会经过拦截器：自动加 token、自动处理错误
     // 响应拦截器返回的是 res（整个 { code, message, data }），所以拿 res.data
-    const res = await request.get('/login', {
-      params: {
-        username: loginForm.value.username,
-        password: loginForm.value.password,
-      },
+    const res = await request.post('/login', {
+      username: loginForm.value.username,
+      password: loginForm.value.password,
     })
     // 登录成功：把 token 存到 localStorage（路由守卫和请求拦截器都读这个）
     localStorage.setItem('satoken', res.data.tokenValue)
