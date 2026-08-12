@@ -54,3 +54,22 @@ CREATE TABLE rag_chat_session (
     update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活跃时间',
     UNIQUE KEY uk_session (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会话管理表';
+
+-- =============================================
+-- 用户长期记忆表：LLM 从对话中自动提取的用户偏好/个人信息
+-- 跨会话生效：不管开哪个新对话，AI 都记得这些偏好
+--
+-- 双写模式（MySQL + Milvus）：
+--   MySQL  存记忆原文（可靠存储，支持 CRUD）
+--   Milvus 存记忆向量（语义检索，找最相关的记忆）
+--   两者用 user_memory.id = Milvus document ID 关联
+--   类似 MySQL + ES 的关系：ES 做搜索，MySQL 做数据主存储
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS user_memory (
+    id              BIGINT       PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID（同时作为 Milvus document ID）',
+    user_id         BIGINT       NOT NULL                COMMENT '用户ID（关联 sys_user）',
+    content         VARCHAR(500) NOT NULL                COMMENT '记忆内容（一句话描述用户偏好或信息）',
+    create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX idx_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户长期记忆表';
