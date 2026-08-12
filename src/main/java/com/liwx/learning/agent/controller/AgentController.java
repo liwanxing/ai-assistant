@@ -152,8 +152,10 @@ public class AgentController {
                     tc.getToolDefinition().name(), tc.getToolDefinition().description());
         }
 
-        // 2. 构建 OpenAiChatOptions（带 tools）
+        // 2. 构建 OpenAiChatOptions（带 tools + model）
+        // 必须显式指定 model，否则 OpenAiChatOptions 默认用 gpt-5-mini，DashScope 不认
         OpenAiChatOptions options = OpenAiChatOptions.builder()
+                .model(chatModel.getOptions().getModel())
                 .toolCallbacks(callbacks)
                 .build();
         log.info("OpenAiChatOptions.getToolCallbacks() = {}", options.getToolCallbacks());

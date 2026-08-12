@@ -151,4 +151,5 @@ Content-Type: application/json
 {"question": "现在几点"}
 
 ### 单测
-GET http://localhost:8080/agent/test-tool-stream?question=现在几点&sessionId=test-stream-002
+GET http://localhost:8080/agent/test-tool-stream?question=现在几点
+satoken: 468d9291-c569-4a68-95d4-d7a0426913ce
