@@ -67,6 +67,11 @@ spring:
       port: 6379
       password: ${REDIS_PASSWORD:123456}
 
+# 高德天气 API（WeatherTool 用）
+# 申请地址：https://lbs.amap.com/ → 控制台 → 应用管理 → 创建 Key（选 Web服务）
+amap:
+  api-key: ${AMAP_API_KEY:amap-placeholder}
+
 # RAG 文档上传配置
 rag:
   upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹

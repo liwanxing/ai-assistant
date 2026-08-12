@@ -4,27 +4,16 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.util.concurrent.RateLimiter;
 import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
+import com.liwx.learning.agent.tool.WeatherTool;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.ChatOptions;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.support.ToolCallbacks;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,9 +44,6 @@ public class AgentController {
     private ChatClient chatClient;
 
     @Autowired
-    private ChatModel chatModel;
-
-    @Autowired
     private ChatSessionMapper chatSessionMapper;
 
     @Autowired
@@ -65,6 +51,9 @@ public class AgentController {
 
     @Autowired
     private TimeTool timeTool;
+
+    @Autowired
+    private WeatherTool weatherTool;
 
     // 限流：复用 RagController 的策略
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
@@ -99,103 +88,40 @@ public class AgentController {
 
         log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
 
+        // 系统提示词
+        String systemPrompt = "你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
+                "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
+                "如果找不到相关资料，明确告知用户。";
+
         // 流式生成：在请求级别注册工具
+        // DashScope 兼容模式流式带参数工具调用时，后续 chunk 的 id 返回空字符串（而非字段缺失），
+        // 导致 Spring AI 的 ChunkMerger 误判为新工具调用而崩溃（NoSuchElementException）。
+        // 非流式 .call() 不走 ChunkMerger，完全正常，因此流式失败时自动降级。
         return chatClient.prompt()
-                .system("你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
-                        "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
-                        "如果找不到相关资料，明确告知用户。")
+                .system(systemPrompt)
                 .user(question)
-                .tools(ragTool, timeTool)
+                .tools(ragTool, timeTool, weatherTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);
                 })
                 .stream()
                 .content()
-                .concatWithValues("[DONE]");
-    }
-
-    /**
-     * 非流式测试端点：验证 Function Calling 是否生效
-     * 不走会话管理，不走记忆，最简链路排查工具调用
-     */
-    @PostMapping("/test-tool")
-    public String testTool(@RequestBody Map<String, String> body) {
-        String question = body.getOrDefault("question", "现在几点");
-        log.info("测试 Function Calling（非流式）：question={}", question);
-
-        String result = chatClient.prompt()
-                .user(question)
-                .tools(timeTool)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, "test-tool-session"))
-                .call()
-                .content();
-
-        log.info("Function Calling 测试结果：{}", result);
-        return result;
-    }
-
-    /**
-     * 流式测试端点（直连 ChatModel）：绕过 ChatClient 和 Advisor 链
-     * 用于定位问题：tools 在流式模式下丢失，到底是在 Advisor 链层还是在 ChatModel/API 层
-     */
-    @GetMapping("/test-tool-stream")
-    public String testToolStream(@RequestParam(defaultValue = "现在几点") String question) {
-        log.info("=== 流式直连测试开始 ===");
-        log.info("question={}", question);
-
-        // 1. 构建 ToolCallback
-        ToolCallback[] callbacks = ToolCallbacks.from(timeTool);
-        log.info("ToolCallbacks 数量：{}", callbacks.length);
-        for (ToolCallback tc : callbacks) {
-            log.info("  Tool: name={}, description={}",
-                    tc.getToolDefinition().name(), tc.getToolDefinition().description());
-        }
-
-        // 2. 构建 OpenAiChatOptions（带 tools + model）
-        // 必须显式指定 model，否则 OpenAiChatOptions 默认用 gpt-5-mini，DashScope 不认
-        OpenAiChatOptions options = OpenAiChatOptions.builder()
-                .model(chatModel.getOptions().getModel())
-                .toolCallbacks(callbacks)
-                .build();
-        log.info("OpenAiChatOptions.getToolCallbacks() = {}", options.getToolCallbacks());
-
-        // 3. 构建 Prompt
-        Prompt prompt = new Prompt(new UserMessage(question), options);
-        ChatOptions promptOptions = prompt.getOptions();
-        log.info("Prompt options class: {}", promptOptions.getClass().getName());
-        if (promptOptions instanceof ToolCallingChatOptions tcOptions) {
-            log.info("Prompt options toolCallbacks: {}", tcOptions.getToolCallbacks());
-        }
-
-        // 4. 直连 ChatModel.stream()，不走任何 Advisor
-        StringBuilder result = new StringBuilder();
-        StringBuilder finishReasons = new StringBuilder();
-
-        chatModel.stream(prompt)
-                .doOnNext(response -> {
-                    Generation gen = response.getResult();
-                    if (gen != null) {
-                        String fr = gen.getMetadata().getFinishReason();
-                        if (fr != null && !"null".equals(fr)) {
-                            log.info("Chunk finishReason: {}", fr);
-                            finishReasons.append(fr).append(",");
-                        }
-                        String text = gen.getOutput().getText();
-                        if (text != null && !text.isEmpty()) {
-                            result.append(text);
-                        }
-                    }
+                .onErrorResume(e -> {
+                    log.warn("流式调用失败，自动降级为非流式：{}", e.getMessage());
+                    String fallback = chatClient.prompt()
+                            .system(systemPrompt)
+                            .user(question)
+                            .tools(ragTool, timeTool, weatherTool)
+                            .advisors(a -> {
+                                a.param(ChatMemory.CONVERSATION_ID, sessionId);
+                                a.param(UserMemoryAdvisor.USER_ID, userId);
+                            })
+                            .call()
+                            .content();
+                    return Flux.just(fallback);
                 })
-                .doOnError(e -> log.error("流式请求异常", e))
-                .doOnComplete(() -> log.info("流式请求完成"))
-                .blockLast();
-
-        log.info("所有 finishReason: {}", finishReasons.toString());
-        log.info("流式直连测试结果：{}", result.toString());
-        log.info("=== 流式直连测试结束 ===");
-
-        return result.toString() + " | finishReasons: " + finishReasons.toString();
+                .concatWithValues("[DONE]");
     }
 
 }
