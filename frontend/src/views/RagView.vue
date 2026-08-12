@@ -78,7 +78,7 @@ const deleteSession = (session) => {
 }
 
 // ──────────────────────────────────────
-// 发送问题：GET /rag/ask?question=xxx（SSE 流式输出）
+// 发送问题：GET /agent/chat?question=xxx（SSE 流式输出）
 // 不用 axios（axios 不支持流式读取），改用原生 fetch + ReadableStream
 // ──────────────────────────────────────
 const handleAsk = async () => {
@@ -95,7 +95,7 @@ const handleAsk = async () => {
   try {
     const token = localStorage.getItem('satoken')
     const response = await fetch(
-      `/api/rag/ask?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
+      `/api/agent/chat?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
       { headers: { satoken: token } }
     )
 
@@ -210,7 +210,7 @@ const formatTime = (time) => {
       <div ref="chatBodyRef" class="chat-body">
         <div v-if="messages.length === 0" class="chat-empty">
           <el-icon :size="48"><ChatDotRound /></el-icon>
-          <p>先在「知识库管理」上传文档，然后在这里提问</p>
+          <p>问我任何问题：知识库内容、查时间、闲聊都行</p>
         </div>
 
         <div

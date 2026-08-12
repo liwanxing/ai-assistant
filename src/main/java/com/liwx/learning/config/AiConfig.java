@@ -2,12 +2,9 @@ package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ChatLoggingAdvisor;
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
-import com.liwx.learning.rag.advisor.RagAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
-import com.liwx.learning.rag.service.RerankService;
 import com.liwx.learning.rag.service.UserMemoryService;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -20,6 +17,10 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Spring AI 统一配置类
  * 统一管理 ChatClient 和 ChatMemory 的构建，Controller 只管用
+ *
+ * 演进说明：
+ *   第一版（已废弃）：ChatClient 绑定了 RagAdvisor，每个请求固定走向量检索
+ *   现在：ChatClient 不带 RAG，RAG 逻辑封装在 RagTool 里，通过 Function Calling 让模型自主决定是否调用
  */
 @Configuration
 public class AiConfig {
@@ -39,17 +40,15 @@ public class AiConfig {
     }
 
     /**
-     * 构建 ChatClient，注册多轮对话记忆 Advisor
-     * 以前需要手动 new OpenAiApi + OpenAiChatModel 传 model/key，现在 Builder 自动注入，build() 就行
+     * 构建 ChatClient：注册多轮对话记忆 + 长期记忆 + 摘要压缩 + 日志
+     * RAG 不在这里做——RAG 逻辑在 RagTool 里，通过 .tools(ragTool) 注册给模型，模型自己决定是否调用
      */
     @Bean
-    public ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
-                                 ChatModel chatModel, ConversationSummaryMapper summaryMapper,
-                                 UserMemoryService userMemoryService,
-                                 VectorStore vectorStore, RerankService rerankService) {
-        return builder
+    public ChatClient chatClient(ChatModel chatModel, ChatMemory chatMemory,
+                                 ConversationSummaryMapper summaryMapper,
+                                 UserMemoryService userMemoryService) {
+        return ChatClient.builder(chatModel)
                 .defaultAdvisors(
-                        new RagAdvisor(vectorStore, rerankService),    // RAG：向量检索 + Rerank + 参考资料拼接
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),  // 消息超过20轮触发摘要压缩

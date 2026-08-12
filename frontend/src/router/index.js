@@ -44,11 +44,11 @@ const routes = [
         meta: { title: '知识库管理', icon: 'Document' },
         component: () => import('../views/RagDocsView.vue'),
       },
-      // 知识库问答：纯聊天页面
+      // 智能助手：Agent 模式，模型自主决定是否调用 RAG、时间等工具
       {
         path: 'rag',
         name: 'Rag',
-        meta: { title: '知识库问答', icon: 'ChatDotRound' },
+        meta: { title: '智能助手', icon: 'ChatDotRound' },
         component: () => import('../views/RagView.vue'),
       },
       // 以后加新页面，在这里加子路由

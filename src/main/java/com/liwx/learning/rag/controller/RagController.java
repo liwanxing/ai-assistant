@@ -10,13 +10,9 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
-import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
-import cn.dev33.satoken.stp.StpUtil;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,9 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.google.common.util.concurrent.RateLimiter;
 import org.springframework.web.multipart.MultipartFile;
-import reactor.core.publisher.Flux;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,15 +31,13 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * RAG 问答接口（检索增强生成）
- * 链路：用户提问 → 向量检索知识库 → 大模型基于检索结果生成回答
+ * 知识库管理接口：文档上传、文档列表、会话管理
+ * 问答功能已迁移到 AgentController（/agent/chat），通过 Function Calling 让模型自主决定是否调用 RAG
  */
 @RestController
 @RequestMapping("/rag")
 public class RagController {
 
-    @Autowired
-    private ChatClient chatClient;
     @Autowired
     private RagService ragService;
     @Autowired
@@ -57,17 +49,6 @@ public class RagController {
 
     @Value("${rag.upload-dir}")
     private String uploadDir;
-
-    // 用户级令牌桶限流：按 userId 隔离，速率 0.167 permits/s（约每分钟10次）
-    // Guava RateLimiter 基于令牌桶思想实现，根据配置可以实现不同的流量控制效果：
-    // 1. 突发型限流：允许空闲期间积累额度，在短时间内承受一定流量峰值。（电商场景）
-    // 2. 平滑型限流：降低突发能力，让请求按照稳定节奏执行，避免短时间大量调用。（本项目针对大模型调用场景）
-    // 注意：Guava RateLimiter 为本地 JVM 限流，多实例分布式限流方案需要使用 Redis + Lua或者Sentinel
-    private final Map<String, RateLimiter> rateLimiters = new java.util.concurrent.ConcurrentHashMap<>();
-
-    private RateLimiter getRateLimiter(String userId) {
-        return rateLimiters.computeIfAbsent(userId, k -> RateLimiter.create(0.167));
-    }
 
     /**
      * 文档上传（异步）：
@@ -126,49 +107,6 @@ public class RagController {
     }
 
     /**
-     * RAG 问答（流式 + 多轮对话）：根据知识库内容回答用户问题，支持上下文追问
-     * 用法：GET /rag/ask?question=请假怎么请？&sessionId=xxx
-     * sessionId：前端生成的会话标识，同一个 sessionId 下的问题会共享对话历史
-     * 返回格式：text/event-stream（SSE），每条消息格式为 data:文字片段\n\n
-     */
-    @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId) {
-        // Sa-Token 拦截器已校验登录，直接获取 userId（不再需要手动解析 token）
-        final Long userId = StpUtil.getLoginIdAsLong();
-
-        // 限流检查：令牌桶，同一用户每分钟最多 10 次提问
-        if (!getRateLimiter(String.valueOf(userId)).tryAcquire()) {
-            return Flux.just("请求过于频繁，请稍后再试");
-        }
-
-        // 1. 会话管理：首次提问自动创建会话记录（标题取用户问题前 20 字），已有会话则刷新活跃时间
-        ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);
-        if (existingSession == null) {
-            String title = question.length() > 20 ? question.substring(0, 20) + "..." : question;
-            chatSessionMapper.insertIfNotExists(sessionId, title);
-        } else {
-            chatSessionMapper.updateActiveTime(sessionId);
-        }
-
-        // 2. 流式生成：所有编排由 Advisor 链自动处理
-        //   RagAdvisor(80)          → 向量检索 + Rerank + 参考资料拼接
-        //   UserMemoryAdvisor(100)  → 注入长期记忆 + 异步提取
-        //   MemoryAdvisor(默认)     → 加载对话历史
-        //   SummaryAdvisor(500)     → 压缩溢出消息
-        return chatClient.prompt()
-                .system("你是一个知识库问答助手。回答时请在引用的内容后面标注来源，格式如[1]、[2]。" +
-                        "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
-                .user(question)
-                .advisors(a -> {
-                    a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                    a.param(UserMemoryAdvisor.USER_ID, userId);
-                })
-                .stream()
-                .content()
-                .concatWithValues("[DONE]");
-    }
-
-    /**
      * 会话列表：查询所有历史会话，按最后活跃时间倒序
      * 前端左侧栏展示用
      */
@@ -180,7 +118,7 @@ public class RagController {
     /**
      * 消息记录：查询某个会话的所有聊天消息
      * 前端点击历史会话时调用，把消息加载到聊天区
-     * 续聊原理：前端拿这个 sessionId 继续调 /ask，后端 ChatMemory 自动加载历史上下文
+     * 续聊原理：前端拿这个 sessionId 继续调 /agent/chat，后端 ChatMemory 自动加载历史上下文
      */
     @GetMapping("/sessions/{sessionId}/messages")
     public Result<List<Map<String, String>>> messages(@PathVariable String sessionId) {
