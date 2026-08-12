@@ -25,7 +25,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *   7. 匹配到后反射调用本类的 handleBusinessException()，返回 Result 给前端
  *
  * 简单理解：框架在调你的 Controller 时包了一层 try-catch，
- *         异常没被 Controller 接住就被框架接住，交给这里的 @ExceptionHandler 统一处理
+ *         异常会交给这里的 @ExceptionHandler 统一处理，返回标准 {code, message, data} 格式
+ *         而不是走 Spring 默认行为（返回 {timestamp, status, error, message, path} 格式，与项目统一的 Result 不一致）
  */
 @Slf4j
 @RestControllerAdvice

@@ -18,6 +18,9 @@ public interface UserMemoryMapper {
     /** 新增记忆（useGeneratedKeys 回填 id，作为 Milvus document ID） */
     int insert(UserMemory userMemory);
 
+    /** 更新记忆内容（语义相似时更新，而非新增） */
+    int updateContent(@Param("id") Long id, @Param("content") String content);
+
     /** 根据 ID 删除单条记忆 */
     int deleteById(@Param("id") Long id);
 

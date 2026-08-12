@@ -21,6 +21,11 @@
         INSERT INTO user_memory (user_id, content) VALUES (#{userId}, #{content})
     </insert>
 
+    <!-- 语义相似时更新已有记忆的内容 -->
+    <update id="updateContent">
+        UPDATE user_memory SET content = #{content} WHERE id = #{id}
+    </update>
+
     <delete id="deleteById">
         DELETE FROM user_memory WHERE id = #{id}
     </delete>

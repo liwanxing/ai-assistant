@@ -73,7 +73,7 @@ public class UserMemoryService {
      * 异步提取记忆：对话完成后调用，不阻塞流式响应
      *
      * 提取逻辑：让 LLM 判断用户问题是否包含值得长期记住的偏好/信息
-     *   - 值得记 → 提取为一句话 → MySQL + Milvus 双写
+     *   - 值得记 → 提取为一句话 → 语义去重：跟已有记忆比对，相似的更新，全新的新增
      *   - 不值得 → 返回"无"，跳过
      *
      * @Async 保证异步执行，不影响 SSE 流式响应
@@ -102,28 +102,45 @@ public class UserMemoryService {
             }
             String memory = result.trim();
 
-            // 去重：已有相同记忆则跳过
-            List<UserMemory> existing = userMemoryMapper.selectByUserId(userId);
-            boolean duplicate = existing.stream().anyMatch(m -> m.getContent().equals(memory));
-            if (duplicate) {
-                return;
+            // 语义去重：向量搜索已有记忆，判断是否高度相似
+            List<Document> similarDocs = vectorStore.similaritySearch(SearchRequest.builder()
+                    .query(memory)
+                    .topK(1)
+                    .similarityThreshold(0.85)
+                    .filterExpression("type == 'user_memory' && userId == '" + userId + "'")
+                    .build());
+
+            if (similarDocs != null && !similarDocs.isEmpty()) {
+                // 有高度相似的已有记忆 → 更新（用户改了偏好，如从"叫我李总"改成"叫我老李"）
+                Long existingId = Long.parseLong(similarDocs.get(0).getId());
+                // 1. 更新 MySQL 记录
+                userMemoryMapper.updateContent(existingId, memory);
+                // 2. Milvus 不支持原地改向量 → 删旧向量 + 写新向量
+                vectorStore.delete(List.of(String.valueOf(existingId)));
+                Document newDoc = Document.builder()
+                        .id(String.valueOf(existingId))
+                        .text(memory)
+                        .metadata(Map.of("type", "user_memory", "userId", String.valueOf(userId)))
+                        .build();
+                vectorStore.add(List.of(newDoc));
+                log.info("用户记忆已更新：userId={}, id={}, memory={}", userId, existingId, memory);
+            } else {
+                // 无相似 → 新增（全新的偏好）
+                // 1. 先写 MySQL，拿到自增 ID（作为 Milvus document ID）
+                UserMemory userMemory = new UserMemory();
+                userMemory.setUserId(userId);
+                userMemory.setContent(memory);
+                userMemoryMapper.insert(userMemory);
+
+                // 2. 再写 Milvus，用 MySQL 的 ID 作为 document ID，metadata 标记为用户记忆
+                Document doc = Document.builder()
+                        .id(String.valueOf(userMemory.getId()))
+                        .text(memory)
+                        .metadata(Map.of("type", "user_memory", "userId", String.valueOf(userId)))
+                        .build();
+                vectorStore.add(List.of(doc));
+                log.info("用户记忆已双写：userId={}, memory={}, milvusId={}", userId, memory, userMemory.getId());
             }
-
-            // 1. 先写 MySQL，拿到自增 ID（作为 Milvus document ID）
-            UserMemory userMemory = new UserMemory();
-            userMemory.setUserId(userId);
-            userMemory.setContent(memory);
-            userMemoryMapper.insert(userMemory);
-
-            // 2. 再写 Milvus，用 MySQL 的 ID 作为 document ID，metadata 标记为用户记忆
-            Document doc = Document.builder()
-                    .id(String.valueOf(userMemory.getId()))
-                    .text(memory)
-                    .metadata(Map.of("type", "user_memory", "userId", String.valueOf(userId)))
-                    .build();
-            vectorStore.add(List.of(doc));
-
-            log.info("用户记忆已双写：userId={}, memory={}, milvusId={}", userId, memory, userMemory.getId());
 
         } catch (Exception e) {
             log.warn("记忆提取失败（不影响正常对话）：userId={}, error={}", userId, e.getMessage());

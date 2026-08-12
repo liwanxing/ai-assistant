@@ -9,14 +9,10 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
-import com.liwx.learning.rag.service.RerankService;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import cn.dev33.satoken.stp.StpUtil;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -25,7 +21,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -50,11 +45,7 @@ public class RagController {
     @Autowired
     private ChatClient chatClient;
     @Autowired
-    private VectorStore vectorStore;
-    @Autowired
     private RagService ragService;
-    @Autowired
-    private RerankService rerankService;
     @Autowired
     private ChatMemory chatMemory;
     @Autowired
@@ -126,20 +117,9 @@ public class RagController {
      * 返回格式：text/event-stream（SSE），每条消息格式为 data:文字片段\n\n
      */
     @GetMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId,
-                            @RequestHeader(value = "satoken", required = false) String token) {
-        // 0. 解析用户ID（/rag/ask 排除了 Sa-Token 拦截，手动从 token 解析）
-        // 用临时变量解析，再赋值给 final 变量（lambda 表达式要求变量 effectively final）
-        Long parsedUserId = null;
-        if (token != null) {
-            try {
-                Object loginId = StpUtil.getLoginIdByToken(token);
-                if (loginId != null) {
-                    parsedUserId = Long.parseLong(loginId.toString());
-                }
-            } catch (Exception ignored) { }
-        }
-        final Long userId = parsedUserId;
+    public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId) {
+        // Sa-Token 拦截器已校验登录，直接获取 userId（不再需要手动解析 token）
+        final Long userId = StpUtil.getLoginIdAsLong();
 
         // 1. 会话管理：首次提问自动创建会话记录（标题取用户问题前 20 字），已有会话则刷新活跃时间
         ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);
@@ -150,42 +130,18 @@ public class RagController {
             chatSessionMapper.updateActiveTime(sessionId);
         }
 
-        // 2. 向量检索：先从 Milvus 多召回一些候选（topK=10），给 Rerank 留筛选空间
-        List<Document> documents = vectorStore.similaritySearch(SearchRequest.builder()
-                .query(question)
-                .topK(10)
-                .build());
-
-        // 3. Rerank 重排序：对 10 条候选用专门的排序模型重新打分，取最相关的 3 条
-        if (!documents.isEmpty()) {
-            documents = rerankService.rerank(question, documents, 3);
-        }
-
-        // 4. 把搜到的文档内容带编号拼接，方便大模型引用时标注来源
-        StringBuilder contextBuilder = new StringBuilder();
-        for (int i = 0; i < documents.size(); i++) {
-            contextBuilder.append("【参考资料").append(i + 1).append("】\n")
-                    .append(documents.get(i).getText())
-                    .append("\n\n");
-        }
-
-        // 5. 流式生成 + 多轮记忆：advisors 传入 sessionId + userId
-        // 记忆编排全部由 Advisor 链处理，Controller 只管传参：
+        // 2. 流式生成：所有编排由 Advisor 链自动处理
+        //   RagAdvisor(80)          → 向量检索 + Rerank + 参考资料拼接
         //   UserMemoryAdvisor(100)  → 注入长期记忆 + 异步提取
         //   MemoryAdvisor(默认)     → 加载对话历史
         //   SummaryAdvisor(500)     → 压缩溢出消息
-        // 参考资料放 system prompt，user 只传纯问题
         return chatClient.prompt()
-                .system("你是一个知识库问答助手。请根据以下参考资料回答用户的问题。" +
-                        "回答时请在引用的内容后面标注来源，格式如[1]、[2]，对应参考资料的编号。" +
-                        "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。" +
-                        "\n\n参考资料：\n" + contextBuilder)
+                .system("你是一个知识库问答助手。回答时请在引用的内容后面标注来源，格式如[1]、[2]。" +
+                        "如果参考资料中没有相关信息，请明确告知'根据现有资料无法回答此问题'，不要编造。")
                 .user(question)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                    if (userId != null) {
-                        a.param(UserMemoryAdvisor.USER_ID, userId);
-                    }
+                    a.param(UserMemoryAdvisor.USER_ID, userId);
                 })
                 .stream()
                 .content()

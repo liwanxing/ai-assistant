@@ -18,21 +18,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 用户长期记忆 Advisor：跨会话的用户偏好记忆，自动注入和提取
+ * 用户长期记忆 Advisor：检索用户偏好注入 SYSTEM，对话完成后异步提取新偏好
  *
- * 工作原理（环绕通知）：
- *   BEFORE（chain.nextStream 之前）：
- *     从 Milvus 语义搜索与当前问题相关的用户记忆，拼到 SYSTEM 消息末尾
- *   AFTER（chain.nextStream 之后，doOnComplete）：
- *     异步调 LLM 判断用户发言是否含偏好，有则 MySQL + Milvus 双写
- *
- * order=100：在 MemoryAdvisor（加载历史）之前执行，确保记忆注入后随历史一起发给大模型
- *
- * 与其他 Advisor 的协作：
- *   UserMemoryAdvisor(100)  → 注入用户记忆到 SYSTEM
- *   MemoryAdvisor(默认)     → 加载对话历史
- *   SummaryAdvisor(500)     → 压缩溢出消息
- *   LoggingAdvisor(1000)    → 打日志
+ * 数据变化示例：
+ *   输入：  SYSTEM: 你是一个知识库问答助手...
+ *           USER:   请假怎么请？
+ *   输出：  SYSTEM: 你是一个知识库问答助手...
+ *                  用户偏好：用户喜欢简洁的回答
+ *           USER:   请假怎么请？
+ *   （流完成后异步提取：调 LLM 判断用户发言是否含偏好，有则 MySQL + Milvus 双写）
  */
 @Slf4j
 public class UserMemoryAdvisor implements CallAdvisor, StreamAdvisor {

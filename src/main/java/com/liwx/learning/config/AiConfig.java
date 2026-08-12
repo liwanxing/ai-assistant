@@ -2,9 +2,12 @@ package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ChatLoggingAdvisor;
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
+import com.liwx.learning.rag.advisor.RagAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
+import com.liwx.learning.rag.service.RerankService;
 import com.liwx.learning.rag.service.UserMemoryService;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -42,10 +45,12 @@ public class AiConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
                                  ChatModel chatModel, ConversationSummaryMapper summaryMapper,
-                                 UserMemoryService userMemoryService) {
+                                 UserMemoryService userMemoryService,
+                                 VectorStore vectorStore, RerankService rerankService) {
         return builder
                 .defaultAdvisors(
-                        new UserMemoryAdvisor(userMemoryService),  // 长期记忆：注入用户偏好 + 异步提取
+                        new RagAdvisor(vectorStore, rerankService),    // RAG：向量检索 + Rerank + 参考资料拼接
+                        new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         new ConversationSummaryAdvisor(chatModel, summaryMapper, 5),  // TODO 测试值，正式改回 20
                         new ChatLoggingAdvisor()

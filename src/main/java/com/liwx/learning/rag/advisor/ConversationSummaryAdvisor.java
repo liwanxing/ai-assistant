@@ -21,15 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 对话摘要 Advisor：当历史消息超过阈值时，自动把旧消息压缩成摘要，避免长对话丢失上下文
+ * 对话摘要 Advisor：用户和助手的对话超过 keepRecent 条时，把最旧的对话压缩成摘要，最近的保留原样
  *
- * 工作原理：
- * 1. maxMessages=30（MemoryAdvisor 保留30条），keepRecent=20（最终发给大模型只保留最近20条）
- * 2. 超过20条的非系统消息 = 溢出部分，调用小模型压缩成摘要
- * 3. 摘要拼到 SYSTEM 消息里，旧消息从 prompt 中移除
- * 4. 最终大模型收到的是：[SYSTEM + 摘要] + [最近20条消息]
- *
- * order=500：在 MemoryAdvisor（加载历史）之后、ChatLoggingAdvisor（打日志）之前执行
+ * 数据变化示例（keepRecent=20，当前已有21条 USER/ASSISTANT 消息）：
+ *   压缩前：SYSTEM + [USER, ASSISTANT] x 21 = 42条消息
+ *   压缩后：SYSTEM + 【之前对话摘要】第1轮的对话内容... + [第2~21轮保留原样]
  */
 @Slf4j
 public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
