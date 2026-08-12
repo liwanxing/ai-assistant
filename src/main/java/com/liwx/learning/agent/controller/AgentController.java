@@ -2,6 +2,8 @@ package com.liwx.learning.agent.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.util.concurrent.RateLimiter;
+import com.liwx.learning.agent.tool.RagTool;
+import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
@@ -11,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,6 +47,12 @@ public class AgentController {
     @Autowired
     private ChatSessionMapper chatSessionMapper;
 
+    @Autowired
+    private RagTool ragTool;
+
+    @Autowired
+    private TimeTool timeTool;
+
     // 限流：复用 RagController 的策略
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
 
@@ -54,7 +64,7 @@ public class AgentController {
      * Agent 对话（流式）：模型自主决定是否调用工具
      * 用法：GET /agent/chat?question=请假怎么请？&sessionId=xxx
      *
-     * 工具已在 AiConfig 中通过 defaultTools() 全局注册，这里不需要再调用 .tools()
+     * 工具在每次请求时通过 .tools() 注册，这是 Spring AI 官方推荐的做法
      */
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chat(@RequestParam String question, @RequestParam String sessionId) {
@@ -76,12 +86,13 @@ public class AgentController {
 
         log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
 
-        // 流式生成：工具已在 ChatClient Bean 中通过 defaultTools 全局注册
+        // 流式生成：在请求级别注册工具
         return chatClient.prompt()
                 .system("你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
                         "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
                         "如果找不到相关资料，明确告知用户。")
                 .user(question)
+                .tools(ragTool, timeTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);
@@ -89,6 +100,25 @@ public class AgentController {
                 .stream()
                 .content()
                 .concatWithValues("[DONE]");
+    }
+
+    /**
+     * 非流式测试端点：验证 Function Calling 是否生效
+     * 不走会话管理，不走记忆，最简链路排查工具调用
+     */
+    @PostMapping("/test-tool")
+    public String testTool(@RequestBody Map<String, String> body) {
+        String question = body.getOrDefault("question", "现在几点");
+        log.info("测试 Function Calling（非流式）：question={}", question);
+
+        String result = chatClient.prompt()
+                .user(question)
+                .tools(timeTool)
+                .call()
+                .content();
+
+        log.info("Function Calling 测试结果：{}", result);
+        return result;
     }
 
 }

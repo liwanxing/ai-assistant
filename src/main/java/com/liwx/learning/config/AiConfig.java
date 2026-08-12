@@ -1,7 +1,5 @@
 package com.liwx.learning.config;
 
-import com.liwx.learning.agent.tool.RagTool;
-import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
@@ -45,17 +43,13 @@ public class AiConfig {
      * 构建 ChatClient：注册多轮对话记忆 + 长期记忆 + 摘要压缩 + 日志
      * RAG 不在这里做——RAG 逻辑在 RagTool 里，通过 .tools(ragTool) 注册给模型，模型自己决定是否调用
      *
-     * 关键：必须注入 Spring AI 自动配置的 ChatClient.Builder Bean，而不是用 ChatClient.builder(chatModel) 静态方法。
-     * 因为自动配置的 Builder 里包含了 ToolCallingAdvisor（工具调用循环的核心组件），
-     * 静态方法创建的 Builder 不含此 Advisor，会导致 .tools() 注册的工具不会被发送给模型。
+     * 工具不在 Builder 层注册，而是在每次请求时通过 .tools() 注册（官方推荐做法）。
      */
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ChatModel chatModel, ConversationSummaryMapper summaryMapper,
-                                 UserMemoryService userMemoryService,
-                                 RagTool ragTool, TimeTool timeTool) {
+                                 UserMemoryService userMemoryService) {
         return chatClientBuilder
-                .defaultTools(ragTool, timeTool)  // 在 Builder 层面注册工具，确保 ToolCallingAdvisor 能序列化到 HTTP 请求
                 .defaultAdvisors(
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
