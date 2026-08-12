@@ -1,12 +1,12 @@
 package com.liwx.learning.config;
 
-import com.liwx.learning.rag.advisor.ChatLoggingAdvisor;
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
 import com.liwx.learning.rag.service.UserMemoryService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
@@ -42,17 +42,21 @@ public class AiConfig {
     /**
      * 构建 ChatClient：注册多轮对话记忆 + 长期记忆 + 摘要压缩 + 日志
      * RAG 不在这里做——RAG 逻辑在 RagTool 里，通过 .tools(ragTool) 注册给模型，模型自己决定是否调用
+     *
+     * 关键：必须注入 Spring AI 自动配置的 ChatClient.Builder Bean，而不是用 ChatClient.builder(chatModel) 静态方法。
+     * 因为自动配置的 Builder 里包含了 ToolCallingAdvisor（工具调用循环的核心组件），
+     * 静态方法创建的 Builder 不含此 Advisor，会导致 .tools() 注册的工具不会被发送给模型。
      */
     @Bean
-    public ChatClient chatClient(ChatModel chatModel, ChatMemory chatMemory,
-                                 ConversationSummaryMapper summaryMapper,
+    public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
+                                 ChatModel chatModel, ConversationSummaryMapper summaryMapper,
                                  UserMemoryService userMemoryService) {
-        return ChatClient.builder(chatModel)
+        return chatClientBuilder
                 .defaultAdvisors(
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),  // 消息超过20轮触发摘要压缩
-                        new ChatLoggingAdvisor()
+                        new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                 )
                 .build();
     }

@@ -76,8 +76,8 @@
         <logger name="com.liwx.learning" level="DEBUG"/>
         <!-- MyBatis 的 SQL 日志（DEBUG 级别才能看到 SQL 语句） -->
         <logger name="com.liwx.learning.mapper" level="DEBUG"/>
-        <!-- Spring AI Advisor：DEBUG 级别可以看到 ChatMemory 加载了多少条历史消息 -->
-        <logger name="org.springframework.ai.chat.client" level="DEBUG"/>
+        <!-- Spring AI：完整 DEBUG，能看到发给大模型的 HTTP 请求体（含 tools 定义）、工具调用过程 -->
+        <logger name="org.springframework.ai" level="DEBUG"/>
     </springProfile>
 
     <!-- 线上环境：INFO 级别，控制台+文件都打，不打 DEBUG -->

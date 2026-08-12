@@ -9,14 +9,19 @@ import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -33,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 面试一句话：用 Spring AI Function Calling 实现 Agent，
  *   RAG 作为工具注册进去，模型根据用户问题自主决定是否调用
  */
+@Slf4j
 @RestController
 @RequestMapping("/agent")
 public class AgentController {
@@ -83,6 +89,8 @@ public class AgentController {
             chatSessionMapper.updateActiveTime(sessionId);
         }
 
+        log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
+
         // 流式生成：注册工具，模型自主决策
         return chatClient.prompt()
                 .system("你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
@@ -98,4 +106,58 @@ public class AgentController {
                 .content()
                 .concatWithValues("[DONE]");
     }
+
+    /**
+     * 【排查专用】同步调用：不走流式，返回完整结构化结果
+     * 用途：排查 Function Calling 是否生效，看模型到底决定调不调工具
+     * 用法：POST /agent/test  body: {"question": "现在几点"}
+     *
+     * 对比 /agent/chat（流式）和 /agent/test（同步）：
+     *   流式：响应被拆成碎片，看不到模型是否调了工具
+     *   同步：等模型完整执行后一次性返回，能看到工具调用的完整链路
+     */
+    @PostMapping("/test")
+    public Map<String, Object> test(@RequestBody Map<String, String> body) {
+        String question = body.get("question");
+        String sessionId = body.getOrDefault("sessionId", "test-session");
+        log.info("Agent 测试请求（同步）：question={}, sessionId={}", question, sessionId);
+
+        final Long userId = StpUtil.getLoginIdAsLong();
+
+        try {
+            // 同步调用：.call() 而不是 .stream()
+            // Spring AI 内部会自动处理 Function Calling：
+            //   1. 发送 question + tools 给模型
+            //   2. 如果模型返回 tool_calls → 执行工具 → 把结果发回模型 → 模型再生成最终回答
+            //   3. 如果模型不调工具 → 直接返回回答
+            ChatResponse response = chatClient.prompt()
+                    .system("你是一个智能助手，可以根据用户问题自主选择是否调用工具。")
+                    .user(question)
+                    .tools(ragTool, timeTool)
+                    .advisors(a -> {
+                        a.param(ChatMemory.CONVERSATION_ID, sessionId);
+                        a.param(UserMemoryAdvisor.USER_ID, userId);
+                    })
+                    .call()
+                    .chatResponse();
+
+            // 提取结果
+            String content = response.getResult().getOutput().getText();
+            log.info("Agent 测试结果：question={}, 回答={}", question, content);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("question", question);
+            result.put("answer", content);
+            result.put("model", response.getMetadata().getModel());
+            return result;
+
+        } catch (Exception e) {
+            log.error("Agent 测试异常", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            error.put("type", e.getClass().getSimpleName());
+            return error;
+        }
+    }
+
 }

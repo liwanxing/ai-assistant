@@ -149,3 +149,14 @@ GET http://localhost:8080/rag/ask?question=请假怎么请？
 
 ### RAG 问答 — 换个问题
 GET http://localhost:8080/rag/ask?question=迟到会怎么扣钱？
+
+
+### 登录
+GET http://localhost:8080/login?username=admin&password=123456
+
+### 测试 Agent（同步）
+POST http://localhost:8080/agent/test
+Content-Type: application/json
+satoken: 1b25aeef-60e5-4628-a3b8-16c73e9a6dde
+
+{"question": "现在几点", "sessionId": "fresh-002"}
