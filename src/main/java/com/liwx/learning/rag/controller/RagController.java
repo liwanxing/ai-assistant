@@ -1,5 +1,6 @@
 package com.liwx.learning.rag.controller;
 
+import com.liwx.learning.common.FileValidator;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.entity.RagDocument;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.google.common.util.concurrent.RateLimiter;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 
@@ -56,6 +58,17 @@ public class RagController {
     @Value("${rag.upload-dir}")
     private String uploadDir;
 
+    // 用户级令牌桶限流：按 userId 隔离，速率 0.167 permits/s（约每分钟10次）
+    // Guava RateLimiter 基于令牌桶思想实现，根据配置可以实现不同的流量控制效果：
+    // 1. 突发型限流：允许空闲期间积累额度，在短时间内承受一定流量峰值。（电商场景）
+    // 2. 平滑型限流：降低突发能力，让请求按照稳定节奏执行，避免短时间大量调用。（本项目针对大模型调用场景）
+    // 注意：Guava RateLimiter 为本地 JVM 限流，多实例分布式限流方案需要使用 Redis + Lua或者Sentinel
+    private final Map<String, RateLimiter> rateLimiters = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private RateLimiter getRateLimiter(String userId) {
+        return rateLimiters.computeIfAbsent(userId, k -> RateLimiter.create(0.167));
+    }
+
     /**
      * 文档上传（异步）：
      * 1. 保存文件到本地
@@ -67,9 +80,11 @@ public class RagController {
     public Result<Map<String, Object>> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "splitStrategy", defaultValue = "TOKEN") SplitStrategy splitStrategy) throws Exception {
-        // 1. 保存文件到本地
+        // 0. 文件校验（空文件、格式、大小）
+        String ext = FileValidator.validate(file, "pdf,txt,doc,docx,md", 50);
         String originalName = file.getOriginalFilename();
-        String ext = originalName.substring(originalName.lastIndexOf("."));  // 取扩展名：.pdf
+
+        // 1. 保存文件到本地
         String storedName = UUID.randomUUID() + ext;  // 拼上 UUID 生成新文件名，防止同名文件互相覆盖
         Path dir = Path.of(uploadDir).toAbsolutePath();  // 必须用绝对路径：transferTo 传相对路径时，Tomcat 会解析到自己的临时目录下
         Files.createDirectories(dir);  // 目录不存在时自动创建
@@ -120,6 +135,11 @@ public class RagController {
     public Flux<String> ask(@RequestParam String question, @RequestParam String sessionId) {
         // Sa-Token 拦截器已校验登录，直接获取 userId（不再需要手动解析 token）
         final Long userId = StpUtil.getLoginIdAsLong();
+
+        // 限流检查：令牌桶，同一用户每分钟最多 10 次提问
+        if (!getRateLimiter(String.valueOf(userId)).tryAcquire()) {
+            return Flux.just("请求过于频繁，请稍后再试");
+        }
 
         // 1. 会话管理：首次提问自动创建会话记录（标题取用户问题前 20 字），已有会话则刷新活跃时间
         ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);

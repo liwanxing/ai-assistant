@@ -121,6 +121,13 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Google Guava：RateLimiter 令牌桶限流 -->
+		<dependency>
+			<groupId>com.google.guava</groupId>
+			<artifactId>guava</artifactId>
+			<version>33.4.6-jre</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>

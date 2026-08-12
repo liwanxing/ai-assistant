@@ -52,7 +52,7 @@ public class AiConfig {
                         new RagAdvisor(vectorStore, rerankService),    // RAG：向量检索 + Rerank + 参考资料拼接
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 5),  // TODO 测试值，正式改回 20
+                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),  // 消息超过20轮触发摘要压缩
                         new ChatLoggingAdvisor()
                 )
                 .build();
