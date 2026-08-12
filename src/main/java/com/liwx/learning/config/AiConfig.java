@@ -1,5 +1,7 @@
 package com.liwx.learning.config;
 
+import com.liwx.learning.agent.tool.RagTool;
+import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
@@ -50,8 +52,10 @@ public class AiConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ChatModel chatModel, ConversationSummaryMapper summaryMapper,
-                                 UserMemoryService userMemoryService) {
+                                 UserMemoryService userMemoryService,
+                                 RagTool ragTool, TimeTool timeTool) {
         return chatClientBuilder
+                .defaultTools(ragTool, timeTool)  // 在 Builder 层面注册工具，确保 ToolCallingAdvisor 能序列化到 HTTP 请求
                 .defaultAdvisors(
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),

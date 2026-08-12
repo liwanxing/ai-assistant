@@ -2,8 +2,6 @@ package com.liwx.learning.agent.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.util.concurrent.RateLimiter;
-import com.liwx.learning.agent.tool.RagTool;
-import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
@@ -43,12 +41,6 @@ public class AgentController {
     private ChatClient chatClient;
 
     @Autowired
-    private RagTool ragTool;
-
-    @Autowired
-    private TimeTool timeTool;
-
-    @Autowired
     private ChatSessionMapper chatSessionMapper;
 
     // 限流：复用 RagController 的策略
@@ -62,10 +54,7 @@ public class AgentController {
      * Agent 对话（流式）：模型自主决定是否调用工具
      * 用法：GET /agent/chat?question=请假怎么请？&sessionId=xxx
      *
-     * .tools(ragTool, timeTool) 把工具注册给模型，模型看到工具描述后：
-     *   需要查知识库 → 调 ragTool.searchKnowledge()
-     *   需要查时间   → 调 timeTool.getCurrentTime()
-     *   都不需要     → 直接回答（不调任何工具）
+     * 工具已在 AiConfig 中通过 defaultTools() 全局注册，这里不需要再调用 .tools()
      */
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chat(@RequestParam String question, @RequestParam String sessionId) {
@@ -87,13 +76,12 @@ public class AgentController {
 
         log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
 
-        // 流式生成：注册工具，模型自主决策
+        // 流式生成：工具已在 ChatClient Bean 中通过 defaultTools 全局注册
         return chatClient.prompt()
                 .system("你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
                         "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
                         "如果找不到相关资料，明确告知用户。")
                 .user(question)
-                .tools(ragTool, timeTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);

@@ -143,16 +143,3 @@ Content-Type: text/plain
 
 < ./test-files/rules.txt
 --boundary--
-
-### RAG 问答
-GET http://localhost:8080/rag/ask?question=请假怎么请？
-
-### RAG 问答 — 换个问题
-GET http://localhost:8080/rag/ask?question=迟到会怎么扣钱？
-
-
-### 登录
-GET http://localhost:8080/login?username=admin&password=123456
-
-### Agent 对话（流式）— 问时间触发 TimeTool
-# GET http://localhost:8080/agent/chat?question=现在几点&sessionId=fresh-002
