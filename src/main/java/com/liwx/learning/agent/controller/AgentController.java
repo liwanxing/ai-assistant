@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.util.concurrent.RateLimiter;
 import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
+import com.liwx.learning.agent.tool.UserQueryTool;
 import com.liwx.learning.agent.tool.WeatherTool;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
@@ -30,6 +31,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *   AgentController（/agent/chat）：注册了多个工具，模型自己决定调哪个
  *     问"请假怎么请" → 模型调 RagTool（查知识库）
  *     问"现在几点"   → 模型调 TimeTool（查时间）
+ *     问"北京天气"   → 模型调 WeatherTool（查天气）
+ *     问"有多少用户" → 模型调 UserQueryTool（查数据库）
  *     问"你好"      → 不调任何工具，直接回答
  *
  * 面试一句话：用 Spring AI Function Calling 实现 Agent，
@@ -54,6 +57,9 @@ public class AgentController {
 
     @Autowired
     private WeatherTool weatherTool;
+
+    @Autowired
+    private UserQueryTool userQueryTool;
 
     // 限流：复用 RagController 的策略
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
@@ -91,7 +97,8 @@ public class AgentController {
         // 系统提示词
         String systemPrompt = "你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
                 "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
-                "如果找不到相关资料，明确告知用户。";
+                "如果找不到相关资料，明确告知用户。" +
+                "如果用户问用户信息、系统有多少人等，调用用户查询工具。";
 
         // 流式生成：在请求级别注册工具
         // DashScope 兼容模式流式带参数工具调用时，后续 chunk 的 id 返回空字符串（而非字段缺失），
@@ -100,7 +107,7 @@ public class AgentController {
         return chatClient.prompt()
                 .system(systemPrompt)
                 .user(question)
-                .tools(ragTool, timeTool, weatherTool)
+                .tools(ragTool, timeTool, weatherTool, userQueryTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);
@@ -112,7 +119,7 @@ public class AgentController {
                     String fallback = chatClient.prompt()
                             .system(systemPrompt)
                             .user(question)
-                            .tools(ragTool, timeTool, weatherTool)
+                            .tools(ragTool, timeTool, weatherTool, userQueryTool)
                             .advisors(a -> {
                                 a.param(ChatMemory.CONVERSATION_ID, sessionId);
                                 a.param(UserMemoryAdvisor.USER_ID, userId);
