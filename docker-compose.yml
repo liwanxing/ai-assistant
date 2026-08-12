@@ -38,6 +38,7 @@ services:
       # MySQL 官方镜像按文件名字母序执行，rbac 在 rag 之前
       - ./sql/rbac.sql:/docker-entrypoint-initdb.d/01-rbac.sql:ro
       - ./sql/rag.sql:/docker-entrypoint-initdb.d/02-rag.sql:ro
+      - ./sql/graph.sql:/docker-entrypoint-initdb.d/03-graph.sql:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
