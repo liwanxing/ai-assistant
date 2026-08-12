@@ -81,6 +81,11 @@ rag:
     max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
     delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打
 
+# Graph 经营分析服务（graph-learning-java 项目）
+# 本地开发默认 http://localhost:8081，Docker 部署时用环境变量覆盖
+graph:
+  service-url: ${GRAPH_SERVICE_URL:http://localhost:8081}
+
 # Sa-Token 配置
 sa-token:
   token-name: satoken
