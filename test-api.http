@@ -152,4 +152,4 @@ Content-Type: application/json
 
 ### 单测
 GET http://localhost:8080/agent/test-tool-stream?question=现在几点
-satoken: 468d9291-c569-4a68-95d4-d7a0426913ce
+satoken: 12a6ddb2-1af7-4fda-afc8-90b84f246cea

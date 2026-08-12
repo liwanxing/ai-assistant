@@ -180,8 +180,10 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
             }
         }
 
+        // 必须用 prompt().mutate() 保留 chatOptions（含 toolCallbacks），
+        // 否则 ToolCallingAdvisor 注册的 tools 会丢失
         return request.mutate()
-                .prompt(Prompt.builder().messages(newInstructions).build())
+                .prompt(request.prompt().mutate().messages(newInstructions).build())
                 .build();
     }
 
