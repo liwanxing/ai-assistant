@@ -7,6 +7,7 @@ import com.liwx.learning.user.dto.UserUpdateDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -16,6 +17,8 @@ public class UserService {
 
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     public List<User> getAllUsers() {
         return userMapper.selectAll();
@@ -30,7 +33,8 @@ public class UserService {
     public User createUser(UserCreateDTO dto) {
         User user = new User();
         user.setUsername(dto.getUsername());
-        user.setPassword(dto.getPassword());
+        // 密码加密存储：存的是 BCrypt 哈希值，不是明文
+        user.setPassword(passwordEncoder.encode(dto.getPassword()));
         user.setNickname(dto.getNickname());
         user.setEmail(dto.getEmail());
         user.setPhone(dto.getPhone());

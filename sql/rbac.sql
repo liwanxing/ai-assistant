@@ -83,10 +83,11 @@ CREATE TABLE sys_role_permission (
 -- =============================================
 
 -- 用户：3个，分别对应 3 种角色
+-- 密码都是 123456，存的是 BCrypt 哈希值（每次加密结果不同，防彩虹表攻击）
 INSERT INTO sys_user (username, password, nickname, email, phone) VALUES
-('admin',     '123456', '管理员', 'admin@test.com',     '13800000000'),
-('zhangsan',  '123456', '张三',   'zhangsan@test.com',  '13800000001'),
-('lisi',      '123456', '李四',   'lisi@test.com',      '13800000002');
+('admin',     '$2b$10$vxavvL4FD9H2F5i/oOR4N.AkPJSVLErPVoz04q59Z.VTpm3uQby3K', '管理员', 'admin@test.com',     '13800000000'),
+('zhangsan',  '$2b$10$bSfaRBZvRRnKzt5U58rFjO2fR3/jtct5HUaPEgBcTpwgr851S9hX.', '张三',   'zhangsan@test.com',  '13800000001'),
+('lisi',      '$2b$10$egxRRU39W1ASIcaa2KhpVe5G/t4IbiqsUX.v2o64Buw6P6v/9D4em', '李四',   'lisi@test.com',      '13800000002');
 
 -- 角色：3个
 INSERT INTO sys_role (role_name, role_code, sort, remark) VALUES

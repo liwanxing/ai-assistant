@@ -5,6 +5,7 @@ import com.liwx.learning.common.Result;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,25 +29,26 @@ public class AuthController {
 
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     /**
      * 登录：查数据库验证账号密码，成功后 Sa-Token 自动生成 token
      */
     @GetMapping("/login")
     public Result<Map<String, String>> login(@RequestParam String username, @RequestParam String password) {
-        // 1. 查数据库：根据用户名找用户
         User user = userMapper.selectByUsername(username);
-        // 2. 用户不存在或密码不对
-        if (user == null || !user.getPassword().equals(password)) {
+        if (user == null) {
             return Result.error(401, "账号或密码错误");
         }
-        // 3. 账号被禁用
+        // BCrypt 校验：matches(明文, 哈希值)
+        if (!passwordEncoder.matches(password, user.getPassword())) {
+            return Result.error(401, "账号或密码错误");
+        }
         if (user.getStatus() != null && user.getStatus() == 0) {
             return Result.error(403, "账号已被禁用");
         }
-        // 4. Sa-Token 登录：传入用户ID，框架自动生成 token
         StpUtil.login(user.getId());
-        // 5. 返回 token 给前端
         Map<String, String> data = new HashMap<>();
         data.put("tokenName", StpUtil.getTokenName());
         data.put("tokenValue", StpUtil.getTokenValue());

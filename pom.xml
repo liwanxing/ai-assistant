@@ -62,6 +62,12 @@
 			<artifactId>aspectjweaver</artifactId>
 		</dependency>
 
+		<!-- Spring Security Crypto：BCrypt 密码加密（只引入加密模块，不引入 Spring Security 的拦截器/过滤器） -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-crypto</artifactId>
+		</dependency>
+
 		<!-- Sa-Token 权限认证 -->
 		<dependency>
 			<groupId>cn.dev33</groupId>
