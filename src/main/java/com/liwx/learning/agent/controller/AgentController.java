@@ -114,6 +114,7 @@ public class AgentController {
         String result = chatClient.prompt()
                 .user(question)
                 .tools(timeTool)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, "test-tool-session"))
                 .call()
                 .content();
 

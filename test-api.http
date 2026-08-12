@@ -143,3 +143,9 @@ Content-Type: text/plain
 
 < ./test-files/rules.txt
 --boundary--
+
+### 单测
+POST  http://localhost:8080/agent/test-tool
+Content-Type: application/json
+
+{"question": "现在几点"}
