@@ -2,7 +2,7 @@ package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
-import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
+import com.liwx.learning.rag.service.ConversationSummaryService;
 import com.liwx.learning.rag.service.UserMemoryService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -47,13 +47,13 @@ public class AiConfig {
      */
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
-                                 ChatModel chatModel, ConversationSummaryMapper summaryMapper,
+                                 ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService) {
         return chatClientBuilder
                 .defaultAdvisors(
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        new ConversationSummaryAdvisor(chatModel, summaryMapper, 20),  // 消息超过20轮触发摘要压缩
+                        new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                 )
                 .build();

@@ -1,7 +1,6 @@
 package com.liwx.learning.rag.advisor;
 
-import com.liwx.learning.rag.entity.ConversationSummary;
-import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
+import com.liwx.learning.rag.service.ConversationSummaryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -10,59 +9,35 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 对话摘要 Advisor：用户和助手的对话超过 keepRecent 条时，把最旧的对话压缩成摘要，最近的保留原样
+ * 对话摘要 Advisor（薄触发器）
  *
- * 数据变化示例（keepRecent=20，当前已有21条 USER/ASSISTANT 消息）：
- *   压缩前：SYSTEM + [USER, ASSISTANT] x 21 = 42条消息
- *   压缩后：SYSTEM + 【之前对话摘要】第1轮的对话内容... + [第2~21轮保留原样]
+ * 职责：只负责从 Advisor 上下文取 sessionId，调 ConversationSummaryService 处理摘要
+ * 核心逻辑全部在 ConversationSummaryService 中，可被任意调用链复用
+ *
+ * adviseStream/adviseCall 是环绕通知（类似 Spring AOP @Around）：
+ *   chain.nextStream() 之前 = before（压缩摘要）
+ *   本 Advisor 只改 request，不需要看 response
  */
 @Slf4j
 public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
 
-    private final ChatModel chatModel;
-    private final ConversationSummaryMapper summaryMapper;
-    private final int keepRecent;
+    private final ConversationSummaryService summaryService;
 
-    private static final String SUMMARY_PREFIX = "\n\n【之前对话摘要】";
-
-    public ConversationSummaryAdvisor(ChatModel chatModel, ConversationSummaryMapper summaryMapper, int keepRecent) {
-        this.chatModel = chatModel;
-        this.summaryMapper = summaryMapper;
-        this.keepRecent = keepRecent;
+    public ConversationSummaryAdvisor(ConversationSummaryService summaryService) {
+        this.summaryService = summaryService;
     }
 
-    /**
-     * 流式调用（SSE）：本项目 RAG 问答走的就是这条路径
-     *
-     * adviseStream/adviseCall 和 before区别
-     * before() 只能在调大模型之前改 request，改完就结束了，拿不到大模型的回答。
-     * adviseCall() 是环绕通知（类似 Spring AOP @Around）：
-     * chain.nextCall() 之前 = before（改请求），之后 = after（拿结果）。
-     *
-     * 每个 Advisor 调了 chain.nextCall() 都能拿到大模型的返回值，
-     * 区别只在于你看的是原始的还是被加工过的，以及你用不用这个结果。
-     * 本 Advisor 只改 request（压缩摘要），不需要看 response，所以没处理 response。
-     */
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
         ChatClientRequest processed = processSummary(request);
         return chain.nextStream(processed);
     }
 
-    /**
-     * 同步调用：逻辑和流式一样，本项目暂未用到
-     */
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
         ChatClientRequest processed = processSummary(request);
@@ -70,7 +45,7 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     /**
-     * 核心逻辑：检查消息数量，溢出则摘要，注入摘要到 system 消息
+     * 调 Service 处理摘要，把返回的消息列表写回 request
      */
     private ChatClientRequest processSummary(ChatClientRequest request) {
         String sessionId = (String) request.context().get("chat_memory_conversation_id");
@@ -78,112 +53,18 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        // 此时 MemoryAdvisor 已执行完毕，instructions 包含完整消息列表：
-        // [SYSTEM 系统提示词] + [历史 USER/ASSISTANT 消息] + [当前 USER 消息]
         List<Message> instructions = request.prompt().getInstructions();
+        List<Message> processed = summaryService.processSummary(sessionId, instructions);
 
-        // 统计非系统消息数量（系统消息不参与计数）
-        List<Message> nonSystemMessages = new ArrayList<>();
-        for (Message msg : instructions) {
-            if (msg.getMessageType() != MessageType.SYSTEM) {
-                nonSystemMessages.add(msg);
-            }
-        }
-
-        // 未超过阈值：只注入已有摘要（如果有）
-        if (nonSystemMessages.size() <= keepRecent) {
-            ConversationSummary existing = summaryMapper.selectBySessionId(sessionId);
-            if (existing != null && existing.getSummary() != null) {
-                return injectSummary(request, existing.getSummary(), 0);
-            }
+        if (processed == instructions) {
+            // 没有变化（未超过阈值且无已有摘要），直接返回
             return request;
-        }
-
-        // 溢出：把多出来的旧消息压缩成摘要
-        int overflowCount = nonSystemMessages.size() - keepRecent;
-        List<Message> overflowMessages = nonSystemMessages.subList(0, overflowCount);
-        log.debug("对话 {} 消息数={}，溢出 {} 条，触发摘要压缩", sessionId, nonSystemMessages.size(), overflowCount);
-
-        ConversationSummary existing = summaryMapper.selectBySessionId(sessionId);
-
-        // 把已有摘要 + 本次溢出的旧消息一起传给大模型，生成更新后的完整摘要
-        String newSummary;
-        try {
-            newSummary = doSummarize(existing, overflowMessages);
-        } catch (Exception e) {
-            log.warn("摘要生成失败，跳过本次压缩: {}", e.getMessage());
-            // 失败时仍注入已有摘要
-            if (existing != null && existing.getSummary() != null) {
-                return injectSummary(request, existing.getSummary(), 0);
-            }
-            return request;
-        }
-
-        // 存摘要，记录已摘要到第几条
-        summaryMapper.upsert(sessionId, newSummary, nonSystemMessages.size());
-
-        // 修改 prompt：注入摘要 + 移除溢出消息
-        return injectSummary(request, newSummary, overflowCount);
-    }
-
-    /**
-     * 调用大模型生成摘要（用 ChatModel 直接调，绕过 Advisor 链避免递归）
-     */
-    private String doSummarize(ConversationSummary existing, List<Message> overflowMessages) {
-        StringBuilder promptText = new StringBuilder();
-        promptText.append("你是一个对话摘要助手。请将以下对话压缩成一段不超过200字的中文摘要，")
-                .append("保留用户的核心问题、关键结论和重要上下文。只输出摘要内容，不要加任何前缀。\n\n");
-
-        if (existing != null && existing.getSummary() != null) {
-            promptText.append("已有摘要：\n").append(existing.getSummary()).append("\n\n");
-            promptText.append("请结合已有摘要和以下新增对话，生成更新后的完整摘要：\n\n");
-        }
-
-        promptText.append("新增对话：\n");
-        for (Message msg : overflowMessages) {
-            String text = msg.getText();
-            // 每条消息最多取200字参与摘要，避免 prompt 过长
-            String preview = text.length() > 200 ? text.substring(0, 200) + "..." : text;
-            promptText.append("[").append(msg.getMessageType()).append("] ")
-                    .append(preview).append("\n");
-        }
-
-        ChatResponse response = chatModel.call(new Prompt(promptText.toString()));
-        return response.getResult().getOutput().getText();
-    }
-
-    /**
-     * 修改 prompt：把摘要拼到 SYSTEM 消息末尾，移除溢出的旧消息
-     *
-     * @param overflowCount 需要移除的非系统消息数量（0 表示不移除，只注入摘要）
-     */
-    private ChatClientRequest injectSummary(ChatClientRequest request, String summary, int overflowCount) {
-        List<Message> instructions = request.prompt().getInstructions();
-        List<Message> newInstructions = new ArrayList<>();
-
-        int nonSystemSeen = 0;
-        for (Message msg : instructions) {
-            if (msg.getMessageType() == MessageType.SYSTEM) {
-                // SYSTEM 消息：拼上摘要（先清理可能已有的旧摘要，避免重复）
-                String systemText = msg.getText();
-                int idx = systemText.indexOf(SUMMARY_PREFIX);
-                if (idx >= 0) {
-                    systemText = systemText.substring(0, idx);
-                }
-                newInstructions.add(new SystemMessage(systemText + SUMMARY_PREFIX + summary));
-            } else {
-                nonSystemSeen++;
-                if (nonSystemSeen > overflowCount) {
-                    newInstructions.add(msg); // 保留最近的消息
-                }
-                // overflowCount 之前的消息被跳过（已压缩成摘要）
-            }
         }
 
         // 必须用 prompt().mutate() 保留 chatOptions（含 toolCallbacks），
         // 否则 ToolCallingAdvisor 注册的 tools 会丢失
         return request.mutate()
-                .prompt(request.prompt().mutate().messages(newInstructions).build())
+                .prompt(request.prompt().mutate().messages(processed).build())
                 .build();
     }
 
