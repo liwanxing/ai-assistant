@@ -149,3 +149,6 @@ POST  http://localhost:8080/agent/test-tool
 Content-Type: application/json
 
 {"question": "现在几点"}
+
+### 单测
+GET http://localhost:8080/agent/chat?question=现在几点&sessionId=test-stream-001

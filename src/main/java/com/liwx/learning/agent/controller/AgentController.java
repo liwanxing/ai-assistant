@@ -9,6 +9,16 @@ import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -43,6 +53,9 @@ public class AgentController {
 
     @Autowired
     private ChatClient chatClient;
+
+    @Autowired
+    private ChatModel chatModel;
 
     @Autowired
     private ChatSessionMapper chatSessionMapper;
@@ -120,6 +133,68 @@ public class AgentController {
 
         log.info("Function Calling 测试结果：{}", result);
         return result;
+    }
+
+    /**
+     * 流式测试端点（直连 ChatModel）：绕过 ChatClient 和 Advisor 链
+     * 用于定位问题：tools 在流式模式下丢失，到底是在 Advisor 链层还是在 ChatModel/API 层
+     */
+    @PostMapping("/test-tool-stream")
+    public String testToolStream(@RequestBody Map<String, String> body) {
+        String question = body.getOrDefault("question", "现在几点");
+        log.info("=== 流式直连测试开始 ===");
+        log.info("question={}", question);
+
+        // 1. 构建 ToolCallback
+        ToolCallback[] callbacks = ToolCallbacks.from(timeTool);
+        log.info("ToolCallbacks 数量：{}", callbacks.length);
+        for (ToolCallback tc : callbacks) {
+            log.info("  Tool: name={}, description={}",
+                    tc.getToolDefinition().name(), tc.getToolDefinition().description());
+        }
+
+        // 2. 构建 OpenAiChatOptions（带 tools）
+        OpenAiChatOptions options = OpenAiChatOptions.builder()
+                .toolCallbacks(callbacks)
+                .build();
+        log.info("OpenAiChatOptions.getToolCallbacks() = {}", options.getToolCallbacks());
+
+        // 3. 构建 Prompt
+        Prompt prompt = new Prompt(new UserMessage(question), options);
+        ChatOptions promptOptions = prompt.getOptions();
+        log.info("Prompt options class: {}", promptOptions.getClass().getName());
+        if (promptOptions instanceof ToolCallingChatOptions tcOptions) {
+            log.info("Prompt options toolCallbacks: {}", tcOptions.getToolCallbacks());
+        }
+
+        // 4. 直连 ChatModel.stream()，不走任何 Advisor
+        StringBuilder result = new StringBuilder();
+        StringBuilder finishReasons = new StringBuilder();
+
+        chatModel.stream(prompt)
+                .doOnNext(response -> {
+                    Generation gen = response.getResult();
+                    if (gen != null) {
+                        String fr = gen.getMetadata().getFinishReason();
+                        if (fr != null && !"null".equals(fr)) {
+                            log.info("Chunk finishReason: {}", fr);
+                            finishReasons.append(fr).append(",");
+                        }
+                        String text = gen.getOutput().getText();
+                        if (text != null && !text.isEmpty()) {
+                            result.append(text);
+                        }
+                    }
+                })
+                .doOnError(e -> log.error("流式请求异常", e))
+                .doOnComplete(() -> log.info("流式请求完成"))
+                .blockLast();
+
+        log.info("所有 finishReason: {}", finishReasons.toString());
+        log.info("流式直连测试结果：{}", result.toString());
+        log.info("=== 流式直连测试结束 ===");
+
+        return result.toString() + " | finishReasons: " + finishReasons.toString();
     }
 
 }
