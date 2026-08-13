@@ -40,6 +40,19 @@ spring:
         repository:
           jdbc:
             initialize-schema: always  # MySQL 不是嵌入式数据库，默认不建表，必须设为 always
+    # MCP Client：连接远程 MCP Server，自动发现对方暴露的工具（如经营分析工具）
+    # toolcallback.enabled = true 把 MCP 工具自动注册到 ChatClient，和本地 @Tool 工具并列
+    # request-timeout 设 2 分钟：经营分析内部多次调 LLM，响应通常 20-30 秒
+    mcp:
+      client:
+        toolcallback:
+          enabled: true
+        request-timeout: 120s
+        sse:
+          connections:
+            graph-analysis:                          # 连接名，随便取
+              url: ${MCP_SERVER_URL:http://localhost:8081}  # 对方的 MCP Server 地址
+
     # Milvus 向量数据库（Spring AI 自动读取这个配置连 Milvus）
     # 本地运行时连 localhost，Docker 容器里用环境变量覆盖成服务名 milvus-standalone
     vectorstore:

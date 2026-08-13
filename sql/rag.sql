@@ -66,6 +66,26 @@ CREATE TABLE rag_chat_session (
 --   类似 MySQL + ES 的关系：ES 做搜索，MySQL 做数据主存储
 -- =============================================
 
+-- =============================================
+-- 文档分段表：每个 chunk 的原文存这里，配合 FULLTEXT INDEX 做关键词检索
+-- 和 Milvus 的关系：
+--   Milvus 存向量（语义检索）
+--   本表存原文（关键词检索）
+--   chunk_id = doc{documentId}_{index}，两边用同一个 ID 关联
+-- FULLTEXT INDEX + ngram 分词器：MySQL 8.0 原生支持中文全文检索，类似 ES 的倒排索引
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS rag_document_chunk (
+    id              BIGINT       PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    document_id     BIGINT       NOT NULL                COMMENT '所属文档ID（关联 rag_document.id）',
+    chunk_id        VARCHAR(50)  NOT NULL                COMMENT '分段唯一标识（doc{documentId}_{index}，和 Milvus 的 document ID 一致）',
+    chunk_index     INT          NOT NULL                COMMENT '分段序号（第几个 chunk）',
+    content         TEXT         NOT NULL                COMMENT '分段文本内容',
+    create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX idx_document_id (document_id),
+    FULLTEXT INDEX ft_content (content) WITH PARSER ngram  -- ngram 分词器支持中文
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档分段表（关键词检索）';
+
 CREATE TABLE IF NOT EXISTS user_memory (
     id              BIGINT       PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID（同时作为 Milvus document ID）',
     user_id         BIGINT       NOT NULL                COMMENT '用户ID（关联 sys_user）',

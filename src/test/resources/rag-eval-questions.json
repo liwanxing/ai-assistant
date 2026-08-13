@@ -1,0 +1,22 @@
+[
+  {
+    "question": "公司的请假流程是什么？",
+    "description": "基础制度查询"
+  },
+  {
+    "question": "出差报销的标准是多少？",
+    "description": "报销标准"
+  },
+  {
+    "question": "新员工入职需要准备什么材料？",
+    "description": "入职流程"
+  },
+  {
+    "question": "年假有几天？怎么申请？",
+    "description": "福利制度"
+  },
+  {
+    "question": "公司有哪些培训机会？",
+    "description": "培训发展"
+  }
+]

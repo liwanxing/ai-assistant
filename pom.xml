@@ -107,6 +107,14 @@
 			<artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
 		</dependency>
 
+		<!-- Spring AI MCP Client (WebFlux)：SSE 传输需要 WebFlux 的 HTTP 客户端 -->
+		<!-- spring-ai-starter-mcp-client 只有 stdio 传输，SSE/Streamable HTTP 必须用 webflux 变体 -->
+		<!-- 项目仍然是 WebMVC 服务器，这里只是借用 WebFlux 的 WebClient 做 MCP 通信 -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
+		</dependency>
+
 		<!-- Spring AI Tika 文档读取：支持 PDF、Word 等格式的文档解析 -->
 		<!-- TikaDocumentReader 把整个文件读成 Document，再交给 TokenTextSplitter 切分 -->
 		<dependency>

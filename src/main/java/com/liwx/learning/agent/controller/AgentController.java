@@ -4,7 +4,6 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.util.concurrent.RateLimiter;
-import com.liwx.learning.agent.tool.GraphTool;
 import com.liwx.learning.agent.tool.ResearchTool;
 import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
@@ -77,9 +76,6 @@ public class AgentController {
 
     @Autowired
     private UserQueryTool userQueryTool;
-
-    @Autowired
-    private GraphTool graphTool;
 
     @Autowired
     private ResearchTool researchTool;
@@ -212,7 +208,7 @@ public class AgentController {
                             MimeType.valueOf(contentType),
                             new FileSystemResource(dest)))
                     .options(OpenAiChatOptions.builder().model("qwen-vl-plus"))
-                    .tools(ragTool, timeTool, weatherTool, userQueryTool, graphTool, researchTool)
+                    .tools(ragTool, timeTool, weatherTool, userQueryTool, researchTool)
                     .advisors(a -> {
                         a.param(ChatMemory.CONVERSATION_ID, sessionId);
                         a.param(UserMemoryAdvisor.USER_ID, userId);
@@ -235,7 +231,7 @@ public class AgentController {
         return chatClient.prompt()
                 .system(systemPrompt)
                 .user(question)
-                .tools(ragTool, timeTool, weatherTool, userQueryTool, graphTool, researchTool)
+                .tools(ragTool, timeTool, weatherTool, userQueryTool, researchTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);

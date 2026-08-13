@@ -1,0 +1,10 @@
+feat: 接入MCP远程工具替换本地GraphTool，优化RAG评估测试
+
+- 接入MCP Client（spring-ai-starter-mcp-client-webflux）通过SSE连接远程经营分析服务
+- 删除本地GraphTool，改为通过MCP协议调用对方的analyzeBusiness工具
+- AiConfig中注册ToolCallbackProvider到ChatClient.defaultTools
+- 启动时打印MCP远程工具注册情况，便于排查
+- application.yml添加MCP Client SSE连接配置
+- logback-spring.xml添加io.modelcontextprotocol DEBUG日志
+- AgentController移除GraphTool引用
+- 优化RagTool、RagService、RagEvaluationTest

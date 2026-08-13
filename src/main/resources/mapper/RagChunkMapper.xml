@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liwx.learning.rag.mapper.RagChunkMapper">
+
+    <!-- 批量插入：一次 INSERT 多行，比循环单条插入快得多 -->
+    <insert id="batchInsert">
+        INSERT INTO rag_document_chunk (document_id, chunk_id, chunk_index, content)
+        VALUES
+        <foreach collection="chunks" item="chunk" separator=",">
+            (#{chunk.documentId}, #{chunk.chunkId}, #{chunk.chunkIndex}, #{chunk.content})
+        </foreach>
+    </insert>
+
+    <!--
+        关键词检索：MATCH ... AGAINST IN BOOLEAN MODE
+        ngram 分词器把中文切成二元组（如"请假"→"请假"），建倒排索引
+        + 号表示必须包含，提高精确度
+    -->
+    <select id="searchByKeyword" resultType="map">
+        SELECT chunk_id, content
+        FROM rag_document_chunk
+        WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
+        LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByDocumentId">
+        DELETE FROM rag_document_chunk WHERE document_id = #{documentId}
+    </delete>
+
+</mapper>

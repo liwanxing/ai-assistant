@@ -2,6 +2,7 @@ package com.liwx.learning.rag.service;
 
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
+import com.liwx.learning.rag.mapper.RagChunkMapper;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -18,7 +19,9 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * RAG 文档异步处理服务
@@ -32,6 +35,9 @@ public class RagService {
 
     @Autowired
     private RagDocumentMapper ragDocumentMapper;
+
+    @Autowired
+    private RagChunkMapper ragChunkMapper;
 
     /**
      * 向量数据库（本项目用 Milvus）
@@ -142,6 +148,19 @@ public class RagService {
             int end = Math.min(i + batchSize, namedChunks.size());
             vectorStore.add(namedChunks.subList(i, end));
         }
+
+        // 5. 同时存 MySQL（带 FULLTEXT INDEX，供关键词检索用）
+        // 双写：Milvus 存向量做语义检索，MySQL 存原文做关键词检索
+        List<Map<String, Object>> chunkRows = new ArrayList<>();
+        for (int i = 0; i < namedChunks.size(); i++) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("documentId", documentId);
+            row.put("chunkId", "doc" + documentId + "_" + i);
+            row.put("chunkIndex", i);
+            row.put("content", namedChunks.get(i).getText());
+            chunkRows.add(row);
+        }
+        ragChunkMapper.batchInsert(chunkRows);
 
         return namedChunks.size();
     }
@@ -301,7 +320,10 @@ public class RagService {
             log.warn("删除本地文件失败: {}", doc.getFilePath(), e);
         }
 
-        // 3. 软删除 MySQL 记录
+        // 3. 删除 MySQL 分段记录
+        ragChunkMapper.deleteByDocumentId(documentId);
+
+        // 4. 软删除 MySQL 文档记录
         ragDocumentMapper.deleteById(documentId);
         log.info("文档已删除, documentId={}", documentId);
     }

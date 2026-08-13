@@ -11,9 +11,12 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
-import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Spring AI 统一配置类
@@ -23,6 +26,7 @@ import org.springframework.context.annotation.Configuration;
  *   第一版（已废弃）：ChatClient 绑定了 RagAdvisor，每个请求固定走向量检索
  *   现在：ChatClient 不带 RAG，RAG 逻辑封装在 RagTool 里，通过 Function Calling 让模型自主决定是否调用
  */
+@Slf4j
 @Configuration
 public class AiConfig {
 
@@ -51,7 +55,15 @@ public class AiConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ConversationSummaryService summaryService,
-                                 UserMemoryService userMemoryService) {
+                                 UserMemoryService userMemoryService,
+                                 ToolCallbackProvider mcpToolCallbackProvider) {
+        // 打印 MCP 远程工具注册情况，启动时一眼看到连了哪些远程工具
+        ToolCallback[] mcpCallbacks = mcpToolCallbackProvider.getToolCallbacks();
+        log.info("MCP 远程工具注册完成，共 {} 个：", mcpCallbacks.length);
+        for (ToolCallback tc : mcpCallbacks) {
+            log.info("  └─ {} : {}", tc.getToolDefinition().name(), tc.getToolDefinition().description());
+        }
+
         return chatClientBuilder
                 .defaultAdvisors(
                         new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
@@ -60,6 +72,7 @@ public class AiConfig {
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                 )
+                .defaultTools(mcpToolCallbackProvider)  // MCP 远程工具：defaultTools 是 Spring AI 2.0 替代 defaultToolCallbacks 的新 API
                 .build();
     }
 }
