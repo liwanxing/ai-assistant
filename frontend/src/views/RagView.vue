@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Promotion, Plus, Delete } from '@element-plus/icons-vue'
+import { ChatDotRound, Promotion, Plus, Delete, Microphone } from '@element-plus/icons-vue'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
@@ -49,6 +49,73 @@ const messages = ref([])
 const inputQuestion = ref('')
 const asking = ref(false)
 const chatBodyRef = ref(null)
+
+// ──────────────────────────────────────
+// 语音输入：浏览器原生 Web Speech API，零依赖
+// 仅 Chrome/Edge 支持，其他浏览器降级为隐藏按钮
+// ──────────────────────────────────────
+const isListening = ref(false)
+let recognition = null
+let baseText = ''  // 录音前输入框已有的文字，识别结果追加到这上面
+
+// 检测浏览器是否支持语音识别
+const speechSupported = typeof window !== 'undefined' &&
+  (window.SpeechRecognition || window.webkitSpeechRecognition)
+
+const initSpeech = () => {
+  if (!speechSupported) return
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  recognition = new SpeechRecognition()
+  recognition.lang = 'zh-CN'           // 中文识别
+  recognition.interimResults = true     // 返回中间结果，实时显示
+  recognition.continuous = false        // 单次模式，用户停顿后自动结束
+
+  // 识别结果回调：interimResults=true 时会多次触发
+  recognition.onresult = (event) => {
+    let interim = ''
+    let final = ''
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        final += event.results[i][0].transcript
+      } else {
+        interim += event.results[i][0].transcript
+      }
+    }
+    // 最终结果：追加到 baseText；中间结果：baseText + 临时文字实时显示
+    if (final) {
+      baseText += final
+      inputQuestion.value = baseText
+    } else if (interim) {
+      inputQuestion.value = baseText + interim
+    }
+  }
+
+  recognition.onerror = (event) => {
+    isListening.value = false
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      ElMessage.error('语音识别失败：' + event.error)
+    }
+  }
+
+  recognition.onend = () => {
+    isListening.value = false
+  }
+}
+
+const toggleVoice = () => {
+  if (!recognition) initSpeech()
+  if (!recognition) return
+
+  if (isListening.value) {
+    recognition.stop()
+    isListening.value = false
+  } else {
+    // 保存已有文字作为基线，识别结果会追加到后面
+    baseText = inputQuestion.value
+    recognition.start()
+    isListening.value = true
+  }
+}
 
 // ──────────────────────────────────────
 // 页面初始化：加载历史会话列表
@@ -268,8 +335,17 @@ const formatTime = (time) => {
       <div class="chat-input">
         <el-input
           v-model="inputQuestion"
-          placeholder="输入你的问题..."
+          :placeholder="isListening ? '正在聆听...' : '输入你的问题...'"
           @keyup.enter="handleAsk"
+          :disabled="asking"
+        />
+        <!-- 语音输入按钮：仅 Chrome/Edge 显示 -->
+        <el-button
+          v-if="speechSupported"
+          :icon="Microphone"
+          :type="isListening ? 'danger' : 'default'"
+          :class="{ 'mic-pulse': isListening }"
+          @click="toggleVoice"
           :disabled="asking"
         />
         <el-button
@@ -431,6 +507,17 @@ const formatTime = (time) => {
   display: flex;
   gap: 12px;
   margin-top: 12px;
+}
+
+/* 语音按钮录音中脉冲动画 */
+.mic-pulse {
+  animation: mic-pulse 1.2s infinite;
+}
+
+@keyframes mic-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(245, 108, 108, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0); }
 }
 </style>
 
