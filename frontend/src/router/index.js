@@ -51,6 +51,13 @@ const routes = [
         meta: { title: '智能助手', icon: 'ChatDotRound' },
         component: () => import('../views/RagView.vue'),
       },
+      // 记忆管理：查看/编辑/删除长期记忆
+      {
+        path: 'memory',
+        name: 'Memory',
+        meta: { title: '记忆管理', icon: 'Collection' },
+        component: () => import('../views/MemoryView.vue'),
+      },
       // 以后加新页面，在这里加子路由
     ],
   },

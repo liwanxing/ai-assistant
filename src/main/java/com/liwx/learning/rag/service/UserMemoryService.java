@@ -155,6 +155,27 @@ public class UserMemoryService {
     }
 
     /**
+     * 修改记忆内容：MySQL 更新原文 + Milvus 删旧向量写新向量
+     */
+    public void updateMemory(Long memoryId, String newContent) {
+        // 1. 更新 MySQL
+        userMemoryMapper.updateContent(memoryId, newContent);
+        // 2. Milvus 不支持原地改向量 → 删旧 + 写新
+        try {
+            vectorStore.delete(List.of(String.valueOf(memoryId)));
+            Document newDoc = Document.builder()
+                    .id(String.valueOf(memoryId))
+                    .text(newContent)
+                    .metadata(Map.of("type", "user_memory"))
+                    .build();
+            vectorStore.add(List.of(newDoc));
+        } catch (Exception e) {
+            log.warn("Milvus 更新记忆失败（MySQL已更新）：id={}, error={}", memoryId, e.getMessage());
+        }
+        log.info("用户记忆已修改：id={}, newContent={}", memoryId, newContent);
+    }
+
+    /**
      * 删除单条记忆：先删 Milvus 向量 → 再删 MySQL 记录
      */
     public void deleteMemory(Long memoryId) {
