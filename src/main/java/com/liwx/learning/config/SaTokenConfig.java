@@ -39,6 +39,14 @@ public class SaTokenConfig implements WebMvcConfigurer {
             }
         })
         .addPathPatterns("/**")
-        .excludePathPatterns("/login");
+        .excludePathPatterns(
+                "/login",
+                "/doc.html",              // Knife4j 文档页面
+                "/webjars/**",            // Knife4j 静态资源
+                "/v3/api-docs/**",        // OpenAPI JSON
+                "/favicon.ico",
+                "/swagger-ui/**",         // Swagger UI 资源
+                "/swagger-resources/**"  // Swagger 资源
+        );
     }
 }

@@ -45,3 +45,6 @@ application-local.yml
 
 # 临时脚本文件
 *.bat
+
+# 临时提交信息文件
+_commit-msg.txt
