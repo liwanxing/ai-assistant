@@ -17,9 +17,7 @@
 | **GraphTool** | 经营分析（调 Java Graph 工作流） | "分析最近销售趋势" |
 | **ResearchTool** | 深度调研（调 Python LangGraph Agent） | "调研主流的 Java AI 框架" |
 
-<!-- 截图：智能助手对话界面 -->
-<!-- 放图方法：先截图保存到 docs/images/，然后取消注释下面这行 -->
-<!-- ![智能助手](docs/images/chat.png) -->
+![智能助手](docs/images/chat.png)
 
 ### 记忆系统（三层）
 
@@ -31,8 +29,7 @@
 
 长期记忆支持前端管理页面查看、编辑、删除，修改删除同步向量库。
 
-<!-- 截图：记忆管理页面 -->
-<!-- ![记忆管理](docs/images/memory.png) -->
+![记忆管理](docs/images/memory.png)
 
 ### 知识库管理
 
@@ -41,8 +38,7 @@
 - 异步处理 + 状态轮询 + 失败重试
 - 文档删除同步清理 Milvus 向量
 
-<!-- 截图：知识库管理页面 -->
-<!-- ![知识库管理](docs/images/rag-docs.png) -->
+![知识库管理](docs/images/rag-docs.png)
 
 ### 用户管理（RBAC）
 
