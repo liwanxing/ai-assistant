@@ -13,8 +13,8 @@ import java.util.Map;
 /**
  * 深度调研工具（Python Agent）
  *
- * 通过 HTTP 调用 Python 项目的 /research 接口，
- * 让独立的 LangGraph Agent 做多步骤深度调研（搜索 → 阅读 → 总结 → 生成报告）。
+ * 通过 HTTP 调用 Python LangGraph Agent 的 /research 接口，做多步骤深度调研（搜索 → 阅读 → 总结 → 生成报告）。
+ * HTTP 是语言无关的协议：Python 用 FastAPI 暴露接口，Java 用 RestClient 发请求，两边只约定 URL + JSON 格式。
  *
  * 调用链：用户问调研类问题 → 模型调本工具 → 本工具 HTTP 调 Python Agent → 返回调研报告
  *

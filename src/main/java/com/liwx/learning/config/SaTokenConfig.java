@@ -7,8 +7,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.nio.file.Path;
 
 /**
  * Sa-Token 路由拦截配置
@@ -23,6 +27,20 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {
+
+    @Value("${rag.upload-dir:./uploads}")
+    private String uploadDir;
+
+    /**
+     * 静态资源映射：让 /uploads/** URL 能访问到磁盘上的上传文件
+     * 聊天图片用 <img src="/uploads/chat-images/xxx.png"> 直接加载，不走 Controller
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String resourceLocation = Path.of(uploadDir).toAbsolutePath().toUri().toString();
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations(resourceLocation);
+    }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -46,7 +64,8 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 "/v3/api-docs/**",        // OpenAPI JSON
                 "/favicon.ico",
                 "/swagger-ui/**",         // Swagger UI 资源
-                "/swagger-resources/**"  // Swagger 资源
+                "/swagger-resources/**",  // Swagger 资源
+                "/uploads/chat-images/**"    // 聊天图片：前端 <img> 直接访问，不走 Controller 无法携带 token
         );
     }
 }

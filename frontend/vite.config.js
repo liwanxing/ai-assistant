@@ -27,6 +27,11 @@ export default defineConfig({
         // 去掉 /api 前缀：/api/users → 后端收到 /users
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // 聊天图片静态资源代理：<img src="/uploads/chat-images/xxx.png"> → 后端 8080
+      '/uploads': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

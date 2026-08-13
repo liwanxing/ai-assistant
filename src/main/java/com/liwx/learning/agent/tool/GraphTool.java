@@ -25,9 +25,15 @@ import java.util.Map;
 @Component
 public class GraphTool {
 
+    // RestClient = Java 版的 fetch/axios（前端），本质就是发 HTTP 请求
+    // Java 发 HTTP 的几种方式：
+    //   RestClient（Spring 6.1+，同步，链式调用）← 当前用这个
+    //   WebClient（响应式，异步流式）
+    //   Feign（声明式，只写接口不写实现，Spring Cloud 微服务场景用得多）
     private final RestClient restClient;
 
     public GraphTool(@Value("${graph.service-url:http://localhost:8081}") String serviceUrl) {
+        // 超时配置：底层就是给 HttpURLConnection 设 connectTimeout / readTimeout
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);     // 连接超时 5 秒
         factory.setReadTimeout(120000);      // 读取超时 2 分钟（Graph 内部多次 LLM 调用）

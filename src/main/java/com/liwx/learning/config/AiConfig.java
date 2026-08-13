@@ -33,10 +33,12 @@ public class AiConfig {
      */
     @Bean
     public ChatMemory chatMemory(JdbcChatMemoryRepository repository) {
-        return MessageWindowChatMemory.builder()
+        ChatMemory delegate = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
                 .maxMessages(30)  // 30 = 摘要缓冲区：ConversationSummaryAdvisor 只取最近 20 条，多出 10 条用来压缩
                 .build();
+        // 包装一层：多模态消息（含图片）存之前剥离 base64 媒体数据，只保留文本，避免数据库膨胀
+        return new MediaStrippingChatMemory(delegate);
     }
 
     /**

@@ -10,20 +10,30 @@ import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.agent.tool.UserQueryTool;
 import com.liwx.learning.agent.tool.WeatherTool;
+import com.liwx.learning.common.FileValidator;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.util.MimeType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -71,6 +81,9 @@ public class AgentController {
 
     @Autowired
     private ResearchTool researchTool;
+
+    @Value("${rag.upload-dir:./uploads}")
+    private String uploadDir;
 
     // 限流：Guava Cache 自动清理不活跃用户的 RateLimiter，避免内存泄漏
     private final Cache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
@@ -122,6 +135,92 @@ public class AgentController {
             return Flux.just(response == null ? "未生成回答" : response, "[DONE]");
         } catch (Exception e) {
             log.error("Agent 调用失败：{}", e.getMessage());
+            return Flux.just("请求处理失败，请重试", "[DONE]");
+        }
+    }
+
+    /**
+     * 图片对话（多模态）：用户上传图片 + 问题，模型直接"看"图片回答
+     *
+     * 多模态原理：
+     *   1. 图片转 base64 → 和文本一起发给通义 qwen-vl-plus 视觉模型
+     *   2. 模型不需要先 OCR 转文字，直接理解图片内容（端到端多模态）
+     *   3. 返回标准文本回答，前端 Markdown 渲染
+     *
+     * 存储方案：
+     *   图片存本地 → URL 存在消息文本的 markdown 语法中 → ChatMemory 只存文本（MediaStrippingChatMemory 剥离 base64）
+     *   历史记录加载时前端解析 markdown 图片语法显示缩略图
+     */
+    @PostMapping(value = "/chat-with-image", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> chatWithImage(
+            @RequestParam String question,
+            @RequestParam String sessionId,
+            @RequestParam("image") MultipartFile imageFile) {
+        final Long userId = StpUtil.getLoginIdAsLong();
+
+        // 限流
+        if (!getRateLimiter(String.valueOf(userId)).tryAcquire()) {
+            return Flux.just("请求过于频繁，请稍后再试");
+        }
+
+        // 校验图片格式（png/jpg/jpeg/gif/webp，最大 10MB）
+        String ext = FileValidator.validate(imageFile, "png,jpg,jpeg,gif,webp", 10);
+
+        // 会话管理
+        ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);
+        if (existingSession == null) {
+            String title = question.length() > 20 ? question.substring(0, 20) + "..." : question;
+            chatSessionMapper.insertIfNotExists(sessionId, title);
+        } else {
+            chatSessionMapper.updateActiveTime(sessionId);
+        }
+
+        log.info("Agent 收到图片对话：userId={}, question={}, sessionId={}, imageSize={}KB",
+                userId, question, sessionId, imageFile.getSize() / 1024);
+
+        try {
+            // 1. 保存图片到磁盘
+            String filename = UUID.randomUUID() + ext;
+            Path imageDir = Path.of(uploadDir, "chat-images").toAbsolutePath();
+            Files.createDirectories(imageDir);
+            Path dest = imageDir.resolve(filename);
+            imageFile.transferTo(dest.toFile());
+            String imageUrl = "/uploads/chat-images/" + filename;
+
+            // 2. 构建消息文本：markdown 图片语法（前端渲染缩略图）+ 用户问题
+            String markdownText = "![图片](" + imageUrl + ")\n\n" + question;
+
+            // 3. 确定 MIME 类型
+            String contentType = switch (ext) {
+                case ".png" -> "image/png";
+                case ".jpg", ".jpeg" -> "image/jpeg";
+                case ".gif" -> "image/gif";
+                case ".webp" -> "image/webp";
+                default -> "image/png";
+            };
+
+            // 4. 调用多模态模型（qwen-vl-plus）：图片转 base64 和文本一起发给模型
+            //    .options() 覆盖默认的 qwen-plus 为 qwen-vl-plus（视觉理解模型）
+            String systemPrompt = "你是一个智能助手，可以根据用户问题和图片内容进行分析和回答。" +
+                    "如果用户上传了截图，请仔细识别图片内容并给出有用的回答。";
+
+            String response = chatClient.prompt()
+                    .system(systemPrompt)
+                    .user(u -> u.text(markdownText).media(
+                            MimeType.valueOf(contentType),
+                            new FileSystemResource(dest)))
+                    .options(OpenAiChatOptions.builder().model("qwen-vl-plus"))
+                    .tools(ragTool, timeTool, weatherTool, userQueryTool, graphTool, researchTool)
+                    .advisors(a -> {
+                        a.param(ChatMemory.CONVERSATION_ID, sessionId);
+                        a.param(UserMemoryAdvisor.USER_ID, userId);
+                    })
+                    .call()
+                    .content();
+
+            return Flux.just(response == null ? "未生成回答" : response, "[DONE]");
+        } catch (Exception e) {
+            log.error("图片对话调用失败：{}", e.getMessage());
             return Flux.just("请求处理失败，请重试", "[DONE]");
         }
     }

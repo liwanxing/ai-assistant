@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Promotion, Plus, Delete, Microphone } from '@element-plus/icons-vue'
+import { ChatDotRound, Promotion, Plus, Delete, Microphone, Picture, Close } from '@element-plus/icons-vue'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
@@ -118,6 +118,39 @@ const toggleVoice = () => {
 }
 
 // ──────────────────────────────────────
+// 图片上传（多模态对话 qwen-vl-plus）
+// ──────────────────────────────────────
+const selectedImage = ref(null)       // 用户选中的图片文件
+const imagePreviewUrl = ref('')       // 本地预览 URL（blob:协议）
+const fileInputRef = ref(null)        // 隐藏的 <input type="file"> 引用
+
+const handleImageSelect = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  // 前端校验：图片格式 + 10MB 限制
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('请选择图片文件')
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 10MB')
+    return
+  }
+  selectedImage.value = file
+  imagePreviewUrl.value = URL.createObjectURL(file)
+  // 重置 input，允许重复选择同一文件
+  event.target.value = ''
+}
+
+const removeSelectedImage = () => {
+  selectedImage.value = null
+  if (imagePreviewUrl.value) {
+    URL.revokeObjectURL(imagePreviewUrl.value)
+    imagePreviewUrl.value = ''
+  }
+}
+
+// ──────────────────────────────────────
 // 页面初始化：加载历史会话列表
 // ──────────────────────────────────────
 onMounted(() => {
@@ -140,7 +173,12 @@ const selectSession = async (session) => {
   sessionId.value = session.sessionId
   try {
     const res = await request.get(`/rag/sessions/${session.sessionId}/messages`)
-    messages.value = res.data || []
+    // 后端返回 { role, content, imageUrl? }，imageUrl 只在图片消息中存在
+    messages.value = (res.data || []).map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      imageUrl: msg.imageUrl || null
+    }))
     scrollToBottom()
   } catch {
     messages.value = []
@@ -182,9 +220,16 @@ const deleteSession = (session) => {
 // ──────────────────────────────────────
 const handleAsk = async () => {
   const question = inputQuestion.value.trim()
-  if (!question) return
+  if (!question && !selectedImage.value) return
 
-  messages.value.push({ role: 'user', content: question })
+  const hasImage = !!selectedImage.value
+
+  // 用户消息加到聊天区（带本地图片预览）
+  messages.value.push({
+    role: 'user',
+    content: question || '(请看图片)',
+    imageUrl: imagePreviewUrl.value || undefined
+  })
   inputQuestion.value = ''
   asking.value = true
 
@@ -193,10 +238,26 @@ const handleAsk = async () => {
 
   try {
     const token = localStorage.getItem('satoken')
-    const response = await fetch(
-      `/api/agent/chat?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
-      { headers: { satoken: token } }
-    )
+    let response
+
+    if (hasImage) {
+      // 有图片：POST FormData 发到多模态接口
+      const formData = new FormData()
+      formData.append('question', question)
+      formData.append('sessionId', sessionId.value)
+      formData.append('image', selectedImage.value)
+      response = await fetch('/api/agent/chat-with-image', {
+        method: 'POST',
+        headers: { satoken: token },
+        body: formData
+      })
+    } else {
+      // 纯文本：GET URL 参数（原有逻辑）
+      response = await fetch(
+        `/api/agent/chat?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
+        { headers: { satoken: token } }
+      )
+    }
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
@@ -234,9 +295,10 @@ const handleAsk = async () => {
       ElMessage.error('请求失败')
     }
   } finally {
+    // 清除已选图片
+    if (hasImage) removeSelectedImage()
     asking.value = false
     scrollToBottom()
-    // 刷新会话列表（新会话会出现在列表中）
     await loadSessions()
   }
 }
@@ -324,39 +386,62 @@ const formatTime = (time) => {
             class="msg-bubble bubble-ai markdown-body"
             v-html="renderMarkdown(msg.content)"
           ></div>
-          <!-- 用户消息：纯文本显示 -->
+          <!-- 用户消息：可能带图片 -->
           <div v-else class="msg-bubble bubble-user">
-            {{ msg.content }}
+            <img v-if="msg.imageUrl" :src="msg.imageUrl" class="chat-user-image" />
+            <div v-if="msg.content && msg.content !== '(请看图片)'">{{ msg.content }}</div>
           </div>
         </div>
       </div>
 
       <!-- 底部输入区 -->
-      <div class="chat-input">
-        <el-input
-          v-model="inputQuestion"
-          :placeholder="isListening ? '正在聆听...' : '输入你的问题...'"
-          @keyup.enter="handleAsk"
-          :disabled="asking"
-        />
-        <!-- 语音输入按钮：仅 Chrome/Edge 显示 -->
-        <el-button
-          v-if="speechSupported"
-          :icon="Microphone"
-          :type="isListening ? 'danger' : 'default'"
-          :class="{ 'mic-pulse': isListening }"
-          @click="toggleVoice"
-          :disabled="asking"
-        />
-        <el-button
-          type="primary"
-          :icon="Promotion"
-          :loading="asking"
-          :disabled="!inputQuestion.trim()"
-          @click="handleAsk"
-        >
-          发送
-        </el-button>
+      <div class="chat-input-wrapper">
+        <!-- 图片预览条 -->
+        <div v-if="imagePreviewUrl" class="image-preview-bar">
+          <img :src="imagePreviewUrl" class="image-preview-thumb" />
+          <span class="image-preview-name">{{ selectedImage?.name }}</span>
+          <el-icon class="image-preview-remove" @click="removeSelectedImage"><Close /></el-icon>
+        </div>
+        <div class="chat-input">
+          <!-- 隐藏的文件选择器 -->
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            style="display:none"
+            @change="handleImageSelect"
+          />
+          <el-input
+            v-model="inputQuestion"
+            :placeholder="isListening ? '正在聆听...' : '输入你的问题...'"
+            @keyup.enter="handleAsk"
+            :disabled="asking"
+          />
+          <!-- 图片上传按钮 -->
+          <el-button
+            :icon="Picture"
+            @click="fileInputRef?.click()"
+            :disabled="asking"
+          />
+          <!-- 语音输入按钮：仅 Chrome/Edge 显示 -->
+          <el-button
+            v-if="speechSupported"
+            :icon="Microphone"
+            :type="isListening ? 'danger' : 'default'"
+            :class="{ 'mic-pulse': isListening }"
+            @click="toggleVoice"
+            :disabled="asking"
+          />
+          <el-button
+            type="primary"
+            :icon="Promotion"
+            :loading="asking"
+            :disabled="!inputQuestion.trim() && !selectedImage"
+            @click="handleAsk"
+          >
+            发送
+          </el-button>
+        </div>
       </div>
     </div>
   </div>
@@ -502,6 +587,52 @@ const formatTime = (time) => {
   max-width: 90%;
   background-color: #fff;
   color: #333;
+}
+
+/* 用户消息中的图片 */
+.chat-user-image {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  display: block;
+}
+
+/* 图片预览条 */
+.image-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.image-preview-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.image-preview-name {
+  flex: 1;
+  font-size: 13px;
+  color: #606266;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-preview-remove {
+  cursor: pointer;
+  color: #c0c4cc;
+  font-size: 16px;
+}
+
+.image-preview-remove:hover {
+  color: #f56c6c;
 }
 
 .chat-input {

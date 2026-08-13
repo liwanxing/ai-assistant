@@ -26,9 +26,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 知识库管理接口：文档上传、文档列表、会话管理
@@ -120,6 +123,9 @@ public class RagController {
      * 前端点击历史会话时调用，把消息加载到聊天区
      * 续聊原理：前端拿这个 sessionId 继续调 /agent/chat，后端 ChatMemory 自动加载历史上下文
      */
+    // 匹配消息文本中的 markdown 图片语法：![图片](/uploads/chat-images/xxx.png)
+    private static final Pattern IMAGE_PATTERN = Pattern.compile("!\\[[^]]*]\\((/uploads/[^)]+)\\)");
+
     @GetMapping("/sessions/{sessionId}/messages")
     public Result<List<Map<String, String>>> messages(@PathVariable String sessionId) {
         // ChatMemory 按 sessionId 从 SPRING_AI_CHAT_MEMORY 表加载所有消息
@@ -130,9 +136,18 @@ public class RagController {
             if (msg.getMessageType() == MessageType.SYSTEM) {
                 continue;
             }
-            Map<String, String> item = new HashMap<>();
+            // 用 LinkedHashMap 保证输出顺序：role → content → imageUrl
+            Map<String, String> item = new LinkedHashMap<>();
             item.put("role", msg.getMessageType() == MessageType.USER ? "user" : "ai");
-            item.put("content", msg.getText());
+
+            String content = msg.getText();
+            // 解析 markdown 图片语法：把 ![图片](url) 提取成单独的 imageUrl 字段，从 content 中去掉
+            Matcher matcher = IMAGE_PATTERN.matcher(content);
+            if (matcher.find()) {
+                item.put("imageUrl", matcher.group(1));
+                content = matcher.replaceAll("").trim();
+            }
+            item.put("content", content);
             result.add(item);
         }
         return Result.success(result);
