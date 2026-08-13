@@ -33,6 +33,8 @@ import reactor.core.publisher.Flux;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -132,7 +134,7 @@ public class AgentController {
             String response = buildPrompt(systemPrompt, question, sessionId, userId)
                     .call()
                     .content();
-            return Flux.just(response == null ? "未生成回答" : response, "[DONE]");
+            return toSseFlux(response);
         } catch (Exception e) {
             log.error("Agent 调用失败：{}", e.getMessage());
             return Flux.just("请求处理失败，请重试", "[DONE]");
@@ -218,7 +220,7 @@ public class AgentController {
                     .call()
                     .content();
 
-            return Flux.just(response == null ? "未生成回答" : response, "[DONE]");
+            return toSseFlux(response);
         } catch (Exception e) {
             log.error("图片对话调用失败：{}", e.getMessage());
             return Flux.just("请求处理失败，请重试", "[DONE]");
@@ -238,6 +240,27 @@ public class AgentController {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);
                 });
+    }
+
+    /**
+     * 把完整回答拆成多行，每行作为独立的 SSE 事件发出
+     *
+     * 原因：SSE 协议用 data: 前缀标记数据，换行是事件分隔符。
+     * 如果一整段带换行的 markdown 作为一个 Flux 元素发出，只有第一行有 data: 前缀，
+     * 前端解析时其余行全丢了。
+     * 解决：按 \n 拆成多行，每行单独走 data: 事件，前端每行追加时补回 \n。
+     */
+    private Flux<String> toSseFlux(String response) {
+        if (response == null || response.isBlank()) {
+            return Flux.just("未生成回答", "[DONE]");
+        }
+        List<String> lines = new ArrayList<>();
+        // split 第二个参数 -1：保留末尾空字符串，确保 markdown 段落间的空行不丢
+        for (String line : response.split("\n", -1)) {
+            lines.add(line);
+        }
+        lines.add("[DONE]");
+        return Flux.fromIterable(lines);
     }
 
 }

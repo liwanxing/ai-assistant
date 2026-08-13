@@ -280,7 +280,8 @@ const handleAsk = async () => {
             reader.cancel()
             break
           }
-          aiMessage.content += text
+          // 后端按行拆分 SSE 事件，前端每行追加时补回换行符
+          aiMessage.content += text + '\n'
           scrollToBottom()
         }
       }
