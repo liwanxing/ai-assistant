@@ -2,7 +2,39 @@
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChatDotRound, Promotion, Plus, Delete } from '@element-plus/icons-vue'
+import { Marked } from 'marked'
+import hljs from 'highlight.js'
+import DOMPurify from 'dompurify'
+import 'highlight.js/styles/github.css'
 import request from '../utils/request'
+
+// ──────────────────────────────────────
+// Markdown 渲染：后端直接返回 markdown，前端负责渲染为 HTML
+// ──────────────────────────────────────
+
+// 配置 marked：breaks 把单换行转 <br>，gfm 启用 GitHub 风格 markdown
+const marked = new Marked({ breaks: true, gfm: true })
+
+// 自定义代码块渲染：集成 highlight.js 语法高亮
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
+      const highlighted = hljs.highlight(text, { language }).value
+      return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`
+    }
+  }
+})
+
+// 将 markdown 渲染为安全 HTML（DOMPurify 过滤 XSS，防注入）
+const renderMarkdown = (content) => {
+  if (!content) return ''
+  try {
+    return DOMPurify.sanitize(marked.parse(content))
+  } catch {
+    return content
+  }
+}
 
 // ──────────────────────────────────────
 // 数据定义
@@ -219,7 +251,14 @@ const formatTime = (time) => {
           class="msg-row"
           :class="msg.role === 'user' ? 'msg-user' : 'msg-ai'"
         >
-          <div class="msg-bubble" :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'">
+          <!-- AI 消息：后端返回 markdown，渲染为 HTML -->
+          <div
+            v-if="msg.role === 'ai'"
+            class="msg-bubble bubble-ai markdown-body"
+            v-html="renderMarkdown(msg.content)"
+          ></div>
+          <!-- 用户消息：纯文本显示 -->
+          <div v-else class="msg-bubble bubble-user">
             {{ msg.content }}
           </div>
         </div>
@@ -374,13 +413,13 @@ const formatTime = (time) => {
   padding: 12px 16px;
   border-radius: 12px;
   line-height: 1.6;
-  white-space: pre-wrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .bubble-user {
   background-color: #409eff;
   color: #fff;
+  white-space: pre-wrap;
 }
 
 .bubble-ai {
@@ -392,5 +431,116 @@ const formatTime = (time) => {
   display: flex;
   gap: 12px;
   margin-top: 12px;
+}
+</style>
+
+<!-- Markdown 渲染样式（非 scoped，用 .markdown-body 前缀限定范围） -->
+<style>
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+
+.markdown-body p {
+  margin: 0 0 8px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 16px 0 8px;
+  font-weight: 600;
+}
+
+.markdown-body h1 { font-size: 1.4em; }
+.markdown-body h2 { font-size: 1.3em; }
+.markdown-body h3 { font-size: 1.2em; }
+.markdown-body h4 { font-size: 1.1em; }
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 8px;
+  padding-left: 24px;
+}
+
+.markdown-body li {
+  margin: 4px 0;
+}
+
+.markdown-body code {
+  background-color: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.markdown-body pre {
+  margin: 0 0 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  background-color: #f6f8fa;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 12px 16px;
+  display: block;
+  border-radius: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-left: 4px solid #409eff;
+  background-color: #f5f7fa;
+  color: #666;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  width: 100%;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #ddd;
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: #f5f7fa;
+  font-weight: 600;
+}
+
+.markdown-body a {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body img {
+  max-width: 100%;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #ddd;
+  margin: 12px 0;
 }
 </style>
