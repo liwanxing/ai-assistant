@@ -86,6 +86,11 @@ rag:
 graph:
   service-url: ${GRAPH_SERVICE_URL:http://localhost:8081}
 
+# 深度调研服务（Python LangGraph Agent 项目）
+# 本地开发默认 http://localhost:8000，Docker 部署时用环境变量覆盖
+research:
+  service-url: ${RESEARCH_SERVICE_URL:http://localhost:8000}
+
 # Sa-Token 配置
 sa-token:
   token-name: satoken

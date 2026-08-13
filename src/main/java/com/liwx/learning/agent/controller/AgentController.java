@@ -5,6 +5,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.util.concurrent.RateLimiter;
 import com.liwx.learning.agent.tool.GraphTool;
+import com.liwx.learning.agent.tool.ResearchTool;
 import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.agent.tool.UserQueryTool;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  *     问"北京天气"   → 模型调 WeatherTool（查天气）
  *     问"有多少用户" → 模型调 UserQueryTool（查数据库）
  *     问"分析销售趋势" → 模型调 GraphTool（调Graph工作流做多步分析）
+ *     问"调研Java AI框架" → 模型调 ResearchTool（调Python Agent做深度调研）
  *     问"你好"      → 不调任何工具，直接回答
  *
  * 面试一句话：用 Spring AI Function Calling 实现 Agent，
@@ -66,6 +68,9 @@ public class AgentController {
 
     @Autowired
     private GraphTool graphTool;
+
+    @Autowired
+    private ResearchTool researchTool;
 
     // 限流：Guava Cache 自动清理不活跃用户的 RateLimiter，避免内存泄漏
     private final Cache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
@@ -104,7 +109,8 @@ public class AgentController {
                 "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
                 "如果找不到相关资料，明确告知用户。" +
                 "如果用户问用户信息、系统有多少人等，调用用户查询工具。" +
-                "如果用户需要深度数据分析、经营报告、销售趋势等复杂分析，调用经营分析工具。";
+                "如果用户需要深度数据分析、经营报告、销售趋势等复杂分析，调用经营分析工具。" +
+                "如果用户需要深入调研某个主题、对比技术方案、行业趋势分析等，调用深度调研工具。";
 
         // DashScope 兼容模式流式带参数工具调用时，后续 chunk 的 id 返回空字符串（而非字段缺失），
         // 导致 Spring AI 的 ChunkMerger 误判为新工具调用而崩溃（NoSuchElementException）。
@@ -127,7 +133,7 @@ public class AgentController {
         return chatClient.prompt()
                 .system(systemPrompt)
                 .user(question)
-                .tools(ragTool, timeTool, weatherTool, userQueryTool, graphTool)
+                .tools(ragTool, timeTool, weatherTool, userQueryTool, graphTool, researchTool)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
                     a.param(UserMemoryAdvisor.USER_ID, userId);
