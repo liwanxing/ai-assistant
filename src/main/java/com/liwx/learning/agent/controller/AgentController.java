@@ -112,17 +112,18 @@ public class AgentController {
                 "如果用户需要深度数据分析、经营报告、销售趋势等复杂分析，调用经营分析工具。" +
                 "如果用户需要深入调研某个主题、对比技术方案、行业趋势分析等，调用深度调研工具。";
 
-        // DashScope 兼容模式流式带参数工具调用时，后续 chunk 的 id 返回空字符串（而非字段缺失），
-        // 导致 Spring AI 的 ChunkMerger 误判为新工具调用而崩溃（NoSuchElementException）。
-        // 非流式 .call() 不走 ChunkMerger，完全正常，因此流式失败时自动降级。
-        return buildPrompt(systemPrompt, question, sessionId, userId)
-                .stream().content()
-                .onErrorResume(e -> {
-                    log.warn("流式调用失败，自动降级为非流式：{}", e.getMessage());
-                    return Flux.just(buildPrompt(systemPrompt, question, sessionId, userId)
-                            .call().content());
-                })
-                .concatWithValues("[DONE]");
+        // 使用非流式调用：DashScope 兼容模式流式 + 工具调用有已知 bug（后续 chunk 的 id 返回空字符串，
+        // 导致 Spring AI 的 ChunkMerger 崩溃）。流式降级又会导致 ChatMemory 重复保存用户消息。
+        // 综合考虑，用非流式 .call() 一次性返回，前端 SSE 仍然正常工作。
+        try {
+            String response = buildPrompt(systemPrompt, question, sessionId, userId)
+                    .call()
+                    .content();
+            return Flux.just(response == null ? "未生成回答" : response, "[DONE]");
+        } catch (Exception e) {
+            log.error("Agent 调用失败：{}", e.getMessage());
+            return Flux.just("请求处理失败，请重试", "[DONE]");
+        }
     }
 
     /**

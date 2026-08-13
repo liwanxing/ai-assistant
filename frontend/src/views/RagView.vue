@@ -485,7 +485,6 @@ const formatTime = (time) => {
 }
 
 .msg-bubble {
-  max-width: 70%;
   padding: 12px 16px;
   border-radius: 12px;
   line-height: 1.6;
@@ -493,12 +492,14 @@ const formatTime = (time) => {
 }
 
 .bubble-user {
+  max-width: 70%;
   background-color: #409eff;
   color: #fff;
   white-space: pre-wrap;
 }
 
 .bubble-ai {
+  max-width: 90%;
   background-color: #fff;
   color: #333;
 }
@@ -575,6 +576,7 @@ const formatTime = (time) => {
   border-radius: 8px;
   overflow-x: auto;
   background-color: #f6f8fa;
+  max-width: 100%;
 }
 
 .markdown-body pre code {
@@ -598,6 +600,9 @@ const formatTime = (time) => {
   border-collapse: collapse;
   margin: 0 0 12px;
   width: 100%;
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .markdown-body th,
@@ -605,6 +610,8 @@ const formatTime = (time) => {
   border: 1px solid #ddd;
   padding: 6px 12px;
   text-align: left;
+  white-space: normal;
+  min-width: 80px;
 }
 
 .markdown-body th {
