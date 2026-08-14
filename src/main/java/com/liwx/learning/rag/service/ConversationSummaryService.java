@@ -3,7 +3,6 @@ package com.liwx.learning.rag.service;
 import com.liwx.learning.rag.entity.ConversationSummary;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -11,7 +10,13 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+
+import jakarta.annotation.PostConstruct;
+
+import java.nio.charset.StandardCharsets;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +40,18 @@ public class ConversationSummaryService {
     private ChatModel chatModel;
     @Autowired
     private ConversationSummaryMapper summaryMapper;
+
+    // 提示词外部化：从 classpath:prompts/ 加载
+    @Value("classpath:prompts/conversation-summary.st")
+    private Resource summaryPromptResource;
+
+    // 启动时加载并缓存，避免每次压缩都读文件
+    private String summaryPrompt;
+
+    @PostConstruct
+    void loadPrompt() throws java.io.IOException {
+        summaryPrompt = summaryPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
 
     private final int keepRecent;
 
@@ -101,9 +118,8 @@ public class ConversationSummaryService {
      * 调用大模型生成摘要（用 ChatModel 直接调，绕过 Advisor 链避免递归）
      */
     private String doSummarize(ConversationSummary existing, List<Message> overflowMessages) {
-        StringBuilder promptText = new StringBuilder();
-        promptText.append("你是一个对话摘要助手。请将以下对话压缩成一段不超过200字的中文摘要，")
-                .append("保留用户的核心问题、关键结论和重要上下文。只输出摘要内容，不要加任何前缀。\n\n");
+        // 使用启动时缓存的提示词模板（来自 prompts/conversation-summary.st）
+        StringBuilder promptText = new StringBuilder(summaryPrompt);
 
         if (existing != null && existing.getSummary() != null) {
             promptText.append("已有摘要：\n").append(existing.getSummary()).append("\n\n");

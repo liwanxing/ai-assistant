@@ -19,9 +19,12 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.util.MimeType;
+
+import jakarta.annotation.PostConstruct;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,7 +50,7 @@ import java.util.concurrent.TimeUnit;
  *     问"现在几点"   → 模型调 TimeTool（查时间）
  *     问"北京天气"   → 模型调 WeatherTool（查天气）
  *     问"有多少用户" → 模型调 UserQueryTool（查数据库）
- *     问"分析销售趋势" → 模型调 GraphTool（调Graph工作流做多步分析）
+ *     问"分析销售趋势" → 模型调 MCP 远程工具 analyzeBusiness（跨系统调对方经营分析服务）
  *     问"调研Java AI框架" → 模型调 ResearchTool（调Python Agent做深度调研）
  *     问"你好"      → 不调任何工具，直接回答
  *
@@ -83,6 +86,22 @@ public class AgentController {
     @Value("${rag.upload-dir:./uploads}")
     private String uploadDir;
 
+    // 提示词外部化：从 classpath:prompts/ 加载，和代码解耦，改 prompt 不用动 Java 文件
+    @Value("classpath:prompts/agent-system.st")
+    private Resource agentSystemPromptResource;
+    @Value("classpath:prompts/agent-image-system.st")
+    private Resource agentImageSystemPromptResource;
+
+    // 启动时加载提示词并缓存为 String，避免每次请求都读文件
+    private String agentSystemPrompt;
+    private String agentImageSystemPrompt;
+
+    @PostConstruct
+    void loadPrompts() throws java.io.IOException {
+        agentSystemPrompt = agentSystemPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        agentImageSystemPrompt = agentImageSystemPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     // 限流：Guava Cache 自动清理不活跃用户的 RateLimiter，避免内存泄漏
     private final Cache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
             .expireAfterAccess(1, TimeUnit.HOURS)
@@ -116,12 +135,8 @@ public class AgentController {
 
         log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
 
-        String systemPrompt = "你是一个智能助手，可以根据用户问题自主选择是否调用工具。" +
-                "如果用户问的是知识库相关内容，调用搜索工具查找资料后回答，并在回答中标注参考资料编号。" +
-                "如果找不到相关资料，明确告知用户。" +
-                "如果用户问用户信息、系统有多少人等，调用用户查询工具。" +
-                "如果用户需要深度数据分析、经营报告、销售趋势等复杂分析，调用经营分析工具。" +
-                "如果用户需要深入调研某个主题、对比技术方案、行业趋势分析等，调用深度调研工具。";
+        // 使用启动时缓存的提示词（来自 prompts/agent-system.st）
+        String systemPrompt = agentSystemPrompt;
 
         // 使用非流式调用：DashScope 兼容模式流式 + 工具调用有已知 bug（后续 chunk 的 id 返回空字符串，
         // 导致 Spring AI 的 ChunkMerger 崩溃）。流式降级又会导致 ChatMemory 重复保存用户消息。
@@ -199,8 +214,7 @@ public class AgentController {
 
             // 4. 调用多模态模型（qwen-vl-plus）：图片转 base64 和文本一起发给模型
             //    .options() 覆盖默认的 qwen-plus 为 qwen-vl-plus（视觉理解模型）
-            String systemPrompt = "你是一个智能助手，可以根据用户问题和图片内容进行分析和回答。" +
-                    "如果用户上传了截图，请仔细识别图片内容并给出有用的回答。";
+            String systemPrompt = agentImageSystemPrompt;
 
             String response = chatClient.prompt()
                     .system(systemPrompt)

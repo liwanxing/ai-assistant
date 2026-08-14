@@ -4,10 +4,13 @@ import com.liwx.learning.rag.entity.UserMemory;
 import com.liwx.learning.rag.mapper.UserMemoryMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -37,6 +40,10 @@ public class UserMemoryService {
     private ChatModel chatModel;
     @Autowired
     private VectorStore vectorStore;
+
+    // 提示词外部化：从 classpath:prompts/ 加载，模板内用 {userMessage} 占位
+    @Value("classpath:prompts/memory-extraction.st")
+    private Resource memoryExtractionPromptResource;
 
     /**
      * 检索与当前问题最相关的用户记忆，拼成 system prompt 片段
@@ -84,18 +91,10 @@ public class UserMemoryService {
             return;
         }
         try {
-            String result = chatModel.call(
-                    "你是一个记忆提取助手。分析以下用户发言，判断是否包含值得长期记住的用户偏好或个人信息。\n\n" +
-                    "值得记住的内容（举例）：\n" +
-                    "- 用户称呼（如\"叫我李总\"\"我姓张\"）\n" +
-                    "- 用户职业（如\"我是Java开发\"\"我做前端\"）\n" +
-                    "- 回答偏好（如\"回答简洁一点\"\"用中文\"\"给代码示例\"）\n" +
-                    "- 个人信息（如\"我在北京工作\"\"团队有5个人\"）\n\n" +
-                    "不值得记住的内容：具体问题、闲聊、知识查询（如\"你好\"\"保险怎么理赔\"）\n\n" +
-                    "用户发言：" + question + "\n\n" +
-                    "如果值得记住，提取为一句话描述（如\"用户喜欢简洁的回答\"），只返回这句话。\n" +
-                    "如果不值得记住，只返回\"无\"。"
-            );
+            // 用 Spring AI PromptTemplate 渲染模板，{userMessage} 替换为用户发言
+            PromptTemplate template = new PromptTemplate(memoryExtractionPromptResource);
+            String prompt = template.render(java.util.Map.of("userMessage", question));
+            String result = chatModel.call(prompt);
 
             if (result == null || result.isBlank() || result.trim().equals("无")) {
                 return;
