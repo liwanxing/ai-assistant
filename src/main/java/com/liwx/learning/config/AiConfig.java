@@ -13,6 +13,8 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import com.liwx.learning.rag.advisor.LangfuseAdvisor;
+import org.springframework.web.client.RestClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -57,7 +59,8 @@ public class AiConfig {
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
-                                 ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider) {
+                                 ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
+                                 ObjectProvider<RestClient> langfuseRestClientProvider) {
         // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
         // 联调时设环境变量 MCP_ENABLED=true，Spring AI 自动创建 McpToolCallbackProvider 后这里才生效
         ToolCallbackProvider toolCallbackProvider = mcpToolCallbackProvider.getIfAvailable();
@@ -69,6 +72,13 @@ public class AiConfig {
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                 );
+
+        // Langfuse 可观测性：追踪每次 ChatClient 调用（条件注入，没配置 key 时不生效）
+        RestClient langfuseRestClient = langfuseRestClientProvider.getIfAvailable();
+        if (langfuseRestClient != null) {
+            builder.defaultAdvisors(new LangfuseAdvisor(langfuseRestClient));
+            log.info("Langfuse 可观测性已启用");
+        }
 
         if (toolCallbackProvider == null) {
             log.info("MCP 客户端未启用（MCP_ENABLED=false），不注册远程工具");

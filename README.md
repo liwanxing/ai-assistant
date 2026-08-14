@@ -49,6 +49,12 @@
 <!-- 截图：用户管理页面 -->
 <!-- ![用户管理](docs/images/user.png) -->
 
+### Langfuse 可观测性
+
+通过 Langfuse 追踪每次 Agent 调用的完整链路（输入/输出/token 用量/延迟），支持调试和成本监控。
+
+![Langfuse 评测](docs/images/langfuse-eval.png)
+
 ## 架构图
 
 ```

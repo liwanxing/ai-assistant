@@ -57,6 +57,14 @@ spring:
             graph-analysis:                          # 连接名，随便取
               url: ${MCP_SERVER_URL:http://localhost:8081}  # 对方的 MCP Server 地址
 
+    # Langfuse：LLM 可观测性平台，追踪每次 ChatClient 调用（输入/输出/token/延迟）
+    # 本地开发用 application-local.yml 里的真实 Key，线上用环境变量注入
+    langfuse:
+      enabled: ${LANGFUSE_ENABLED:false}
+      secret-key: ${LANGFUSE_SECRET_KEY:}
+      public-key: ${LANGFUSE_PUBLIC_KEY:}
+      url: ${LANGFUSE_BASE_URL:}
+
     # Milvus 向量数据库（Spring AI 自动读取这个配置连 Milvus）
     # 本地运行时连 localhost，Docker 容器里用环境变量覆盖成服务名 milvus-standalone
     vectorstore:
@@ -83,6 +91,17 @@ spring:
       host: localhost
       port: 6379
       password: ${REDIS_PASSWORD:123456}
+
+# OpenTelemetry OTLP导出：把 Micrometer trace 发到 Langfuse
+management:
+  tracing:
+    sampling:
+      probability: 1.0  # 100% 采样，开发环境全量追踪
+  otlp:
+    tracing:
+      endpoint: ${LANGFUSE_OTEL_ENDPOINT:https://jp.cloud.langfuse.com/api/otel/v1/traces}
+      headers:
+        Authorization: Basic ${LANGFUSE_OTEL_AUTH:}
 
 # 高德天气 API（WeatherTool 用）
 # 申请地址：https://lbs.amap.com/ → 控制台 → 应用管理 → 创建 Key（选 Web服务）

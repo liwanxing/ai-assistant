@@ -1,0 +1,55 @@
+# LangFuse 自部署配置
+# 用法：docker compose -f docker-compose.langfuse.yml up -d
+# 访问：http://localhost:3000
+
+services:
+  # PostgreSQL：LangFuse 的数据存储
+  langfuse-postgres:
+    image: postgres:16
+    container_name: langfuse-postgres
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse123
+      POSTGRES_DB: langfuse
+    ports:
+      - "5433:5432"    # 用 5433 避免和本地 PostgreSQL 冲突
+    volumes:
+      - langfuse_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      retries: 5
+
+  # Redis：LangFuse 缓存（用独立端口，不和你的 redis7 冲突）
+  langfuse-redis:
+    image: redis:7
+    container_name: langfuse-redis
+    ports:
+      - "6380:6379"    # 用 6380 避免和你的 redis7 冲突
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  # LangFuse Server
+  langfuse-server:
+    image: langfuse/langfuse:latest
+    container_name: langfuse-server
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://langfuse:langfuse123@langfuse-postgres:5432/langfuse"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_SECRET: "your-secret-key-change-me"
+      # LangFuse 生成的加密密钥（首次启动会自动生成）
+      SALT: "your-salt-change-me"
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+
+volumes:
+  langfuse_pg_data:
