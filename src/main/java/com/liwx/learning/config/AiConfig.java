@@ -13,6 +13,7 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -56,23 +57,31 @@ public class AiConfig {
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
-                                 ToolCallbackProvider mcpToolCallbackProvider) {
-        // 打印 MCP 远程工具注册情况，启动时一眼看到连了哪些远程工具
-        ToolCallback[] mcpCallbacks = mcpToolCallbackProvider.getToolCallbacks();
-        log.info("MCP 远程工具注册完成，共 {} 个：", mcpCallbacks.length);
-        for (ToolCallback tc : mcpCallbacks) {
-            log.info("  └─ {} : {}", tc.getToolDefinition().name(), tc.getToolDefinition().description());
-        }
-
-        return chatClientBuilder
+                                 ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider) {
+        // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
+        // 联调时设环境变量 MCP_ENABLED=true，Spring AI 自动创建 McpToolCallbackProvider 后这里才生效
+        ToolCallbackProvider toolCallbackProvider = mcpToolCallbackProvider.getIfAvailable();
+        ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
                         new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
-                )
-                .defaultTools(mcpToolCallbackProvider)  // MCP 远程工具：defaultTools 是 Spring AI 2.0 替代 defaultToolCallbacks 的新 API
-                .build();
+                );
+
+        if (toolCallbackProvider == null) {
+            log.info("MCP 客户端未启用（MCP_ENABLED=false），不注册远程工具");
+        } else {
+            // 打印 MCP 远程工具注册情况，启动时一眼看到连了哪些远程工具
+            ToolCallback[] mcpCallbacks = toolCallbackProvider.getToolCallbacks();
+            log.info("MCP 远程工具注册完成，共 {} 个：", mcpCallbacks.length);
+            for (ToolCallback tc : mcpCallbacks) {
+                log.info("  └─ {} : {}", tc.getToolDefinition().name(), tc.getToolDefinition().description());
+            }
+            // MCP 远程工具：defaultTools 是 Spring AI 2.0 替代 defaultToolCallbacks 的新 API
+            builder = builder.defaultTools(toolCallbackProvider);
+        }
+        return builder.build();
     }
 }
