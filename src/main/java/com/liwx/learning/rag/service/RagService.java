@@ -54,6 +54,12 @@ public class RagService {
     @Autowired
     private EmbeddingModel embeddingModel;
 
+    /**
+     * 语义缓存：文档变更后全量失效（旧答案基于旧知识库，不清缓存会一直返回过期答案）
+     */
+    @Autowired
+    private SemanticCacheStore semanticCacheStore;
+
     @Value("${rag.retry.max-attempts:3}")
     private int maxAttempts;
 
@@ -80,6 +86,8 @@ public class RagService {
 
                 // 成功：更新状态，退出循环
                 ragDocumentMapper.updateStatus(documentId, "SUCCESS", chunkCount, null);
+                // 知识库变了，基于旧知识库的缓存答案全部作废
+                semanticCacheStore.invalidate();
                 log.info("文档处理完成, documentId={}, chunks={}", documentId, chunkCount);
                 return;
 
@@ -325,6 +333,9 @@ public class RagService {
 
         // 4. 软删除 MySQL 文档记录
         ragDocumentMapper.deleteById(documentId);
+
+        // 5. 知识库变了，语义缓存里基于该知识库的答案全部作废
+        semanticCacheStore.invalidate();
         log.info("文档已删除, documentId={}", documentId);
     }
 }

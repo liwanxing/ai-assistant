@@ -1,9 +1,11 @@
 package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
+import com.liwx.learning.rag.advisor.SemanticCacheAdvisor;
 import com.liwx.learning.rag.advisor.TokenUsageAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.service.ConversationSummaryService;
+import com.liwx.learning.rag.service.SemanticCacheStore;
 import com.liwx.learning.rag.service.UserMemoryService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -60,6 +62,7 @@ public class AiConfig {
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
+                                 SemanticCacheStore semanticCacheStore,
                                  ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
                                  @Autowired(required = false) RestClient langfuseRestClient) {
         // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
@@ -71,7 +74,12 @@ public class AiConfig {
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
-                        new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
+                        new SimpleLoggerAdvisor(),  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
+                        // 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。放最内层（order=1000）——
+                        // 短路时只跳过 LLM 调用，外层的记忆读写/Token 监控照常执行；
+                        // 命中时无 Usage 元数据 → TokenUsage 不打 token 行（账本不重复计账，
+                        // 节省量 = 命中次数 × 同类问题首次调用的平均 token，是对比值非单次可读）
+                        new SemanticCacheAdvisor(semanticCacheStore)
                 );
 
         // Langfuse 可观测性：@ConditionalOnProperty 控制 Bean 是否创建

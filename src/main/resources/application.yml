@@ -136,6 +136,13 @@ rag:
     enabled: true          # 查询改写开关：检索前把口语化查询改写成多个规范变体分别检索（Multi-Query），
                           # 跑基线对比时设为 false 可回到单查询行为
     model: qwen-flash      # 改写用轻量模型：任务小、要求快和便宜，不值得动用主模型 qwen-plus
+  # 语义缓存：问题→答案存 Milvus 独立 collection（SemanticCacheStore），
+  # 相似度超阈值直接返回缓存答案：0 token、毫秒级响应（SemanticCacheAdvisor 短路 LLM 调用）
+  semantic-cache:
+    enabled: true
+    similarity-threshold: 0.95  # 命中阈值：很高，只匹配“换个问法的同一个问题”，
+                                # 多轮追问/相似但不同的问题不会误命中；想更激进可降到 0.90
+    ttl-days: 7                 # 缓存有效期（天）：兑底防旧答案，文档上传/删除时会主动全量失效
   retry:
     max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
     delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打
