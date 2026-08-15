@@ -86,8 +86,8 @@ class ReadLimitChatMemoryTest {
         List<Message> result = readLimit.get("s1");
 
         assertEquals(5, result.size());
-        // 消息按时间正序存储，尾部即最新：应保留第 16~20 条
-        assertEquals("user-16", result.get(0).getText());
+        // 消息按时间正序存储，尾部即最新：应保留第 16~20 条（16 为偶数，辅助方法生成的是 assistant-16）
+        assertEquals("assistant-16", result.get(0).getText());
         assertEquals("assistant-20", result.get(4).getText());
     }
 
@@ -103,7 +103,7 @@ class ReadLimitChatMemoryTest {
         // SYSTEM 不参与截断：1 条系统提示 + 最近 5 条 = 6 条，且 SYSTEM 永远在最前
         assertEquals(6, result.size());
         assertEquals(MessageType.SYSTEM, result.get(0).getMessageType());
-        assertEquals("user-16", result.get(1).getText());
+        assertEquals("assistant-16", result.get(1).getText());
     }
 
     @Test

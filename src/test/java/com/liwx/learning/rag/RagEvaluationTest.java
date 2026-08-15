@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.liwx.learning.agent.tool.RagTool;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.evaluation.RelevancyEvaluator;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 问题集在 src/test/resources/rag-eval-questions.json，随时加问题不用改代码
  */
 @SpringBootTest
+@Tag("integration")  // 集成测试：需 MySQL/Milvus/API Key + 完整 Spring 上下文，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
 class RagEvaluationTest {
 
     @Autowired

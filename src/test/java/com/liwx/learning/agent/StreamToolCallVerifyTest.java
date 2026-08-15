@@ -1,6 +1,7 @@
 package com.liwx.learning.agent;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.annotation.Tool;
@@ -38,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * 前置条件：DashScope API Key 有效（application-local.yml / 环境变量）
  */
 @SpringBootTest
+@Tag("integration")  // 集成测试：需真实 API Key + 完整 Spring 上下文，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
 class StreamToolCallVerifyTest {
 
     @Autowired
