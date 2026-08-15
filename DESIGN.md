@@ -81,7 +81,7 @@ Sentinel 是阿里开源的流量治理平台，自带 Dashboard 控制台，适
 
 **Q：Agent 是怎么实现的？**
 
-用 Spring AI 的 Function Calling 机制。注册 6 个工具（RagTool、TimeTool、WeatherTool 等），模型根据用户问题自主决定调哪个工具，不需要手写路由逻辑。
+用 Spring AI 的 Function Calling 机制。注册 5 个本地工具（RagTool、TimeTool、WeatherTool、UserQueryTool、ResearchTool）+ 1 个 MCP 动态发现工具（graph-analysis，开关可关），模型根据用户问题自主决定调哪个工具，不需要手写路由逻辑。
 
 问"请假怎么请" → 模型调 RagTool（查知识库）
 问"北京天气" → 模型调 WeatherTool（调高德 API）
@@ -93,11 +93,24 @@ Spring AI 封装了 Tool 定义的 JSON Schema 生成、Tool Call 结果的序�
 
 ---
 
-## 5. RAG 知识库
+## 5. RAG 知识库（五段式质量链路）
 
 **Q：RAG 是怎么做的？**
 
-上传文档 → Tika 解析内容 → 切分成小段 → Embedding 向量化 → 存入 Milvus。用户提问时，先向量检索相关片段，再用 Rerank 模型重排序，把最相关的作为上下文注入给模型。
+不是"向量检索一把搜"，而是五段流水线，每段解决一个具体的质量问题：
+
+```
+① 查询改写：口语→规范（"那个报销的东西在哪点"→"费用报销流程 操作入口"），
+   Multi-Query 生成 3 个变体提升召回
+② 混合检索：向量（语义）+ MySQL 全文（字面）两路并行，
+   CompletableFuture.allOf 协调，单路失败降级空结果不拖全局
+③ Rerank 精排：gte-rerank-v2 交叉编码器，用原始查询（不是改写后的）对齐真实意图
+④ 置信度门控：top1 分数低于阈值 → 拒答"知识库暂无相关资料"，防"弱相关资料硬答"式幻觉
+⑤ 生成：基于精排后的片段回答
+旁路：语义缓存——相似问题命中直接返回旧答案（0 token、毫秒级）
+```
+
+索引侧：上传文档 → Tika 解析 → 切分（TOKEN/FIXED/SEMANTIC 三策略）→ Embedding 向量化 → 存入 Milvus。
 
 **为什么需要 Rerank？**
 
@@ -107,6 +120,10 @@ Embedding 向量检索是"粗筛"（语义相似度），Rerank 是"精排"（�
 
 支持 TOKEN / FIXED_LENGTH / SEMANTIC 三种。TOKEN 切分是默认，语义切分效果最好但依赖模型，Fixed Length 简单粗暴但可能切断句子。
 
+**置信度阈值怎么定的？**
+
+Rerank 分数不是概率是相对值。阈值宁低勿高（0.3 起步）——设高了把该答的拒掉，比答得一般更伤体验。校准方法：批量跑评估集看分数分布。
+
 ---
 
 ## 6. 三层记忆系统
@@ -115,17 +132,31 @@ Embedding 向量检索是"粗筛"（语义相似度），Rerank 是"精排"（�
 
 | 层级 | 存储 | 生命周期 | 说明 |
 |------|------|---------|------|
-| 短期窗口 | MySQL（`SPRING_AI_CHAT_MEMORY`） | 同一会话 | 滑动窗口 30 条，超出自动裁剪 |
-| 对话摘要 | MySQL | 跨会话 | 超过 20 轮时，旧消息压缩为摘要 |
+| 短期窗口 | MySQL（`SPRING_AI_CHAT_MEMORY`） | 同一会话 | **存 500 条 / 模型读 30 条分离**（见下） |
+| 对话摘要 | MySQL | 同一会话 | 超出 20 条部分自动压缩为摘要注入 system |
 | 长期记忆 | MySQL + Milvus 双写 | 永久 | AI 自动提取用户偏好，跨所有会话生效 |
 
 **为什么双写 MySQL + Milvus？**
 
 MySQL 存文本（精确查询、编辑、删除），Milvus 存向量（语义检索）。用户说"我喜欢 Python"，长期记忆提取后存入，下次问相关问题时语义检索召回。
 
+**Q：什么是存用分离？为什么需要？**
+
+MessageWindowChatMemory 默认把"存多少"和"模型看多少"绑死：maxMessages=30 时数据库物理只剩 30 条，用户点开历史会话，早期对话凭空消失——存储被上下文策略绑架了。
+
+解决：装饰器模式。`ReadLimitChatMemory` 只装饰 `get()`（读取时截最近 30 条），写入全量透传，存储窗口由内层 500 控制。三个数字各司其职：
+
+- **500** = 存多少（数据库完整档案，约 250 轮，供历史回看）
+- **30** = 读多少（模型上下文窗口 = 摘要缓冲区：20 保留 + 10 溢出压缩）
+- **20** = 摘要后保留多少条原文
+
+关键细节：这层包在 Advisor 构造处而不是 ChatMemory Bean 上——`/messages` 回看接口注入的是原始 Bean，拿到全量历史，两路互不干扰。
+
 **MediaStrippingChatMemory 是什么？**
 
 多模态消息（含图片）存数据库前剥离 base64 媒体数据，只保留文本，避免数据库膨胀。一个 base64 图片可能几 MB，存进去很快撑爆数据库。
+
+与 ReadLimitChatMemory 是嵌套关系而非替换：内层剥图（写入侧），外层截读（读取侧），两层装饰器各司其职。
 
 ---
 
@@ -169,7 +200,11 @@ Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 �
 
 **Q：流式输出怎么做的？**
 
-后端返回 `Flux<String>`（Spring WebFlux），前端用 `fetch` + `ReadableStream` 逐行读取 SSE 事件。
+同步调用 LLM + 后端按行拆成 SSE 事件推送，前端 `fetch` + `ReadableStream` 逐行读取。
+
+**为什么不用真流式（Flux/WebFlux）？**
+
+踩坑：DashScope 流式响应里工具调用 ID 为空，Function Calling 链路断裂。务实方案：同步调用（工具 ID 完整）+ 拆行假流——体感接近流式，工程上绕开供应商 bug。
 
 **一个坑：** SSE 协议中换行是事件分隔符。如果整段 markdown 作为一个事件发出，前端只能收到第一行。解决：后端按 `\n` 拆成多行，每行单独走一个 `data:` 事件。
 
@@ -209,18 +244,86 @@ Milvus 部署需要三件套（milvus-standalone + etcd + minio），Docker Comp
 
 ---
 
+## 14. MCP 双向互通
+
+**Q：MCP 用在哪？**
+
+一个项目同时扮演两种角色：
+
+- **MCP Client**：消费另一个 Java 项目（graph-learning-java）暴露的经营分析工具，动态发现，`MCP_ENABLED` 开关可关——远程服务挂了不影响主链路
+- **MCP Server**：把 RAG 知识库暴露为标准 MCP 工具（`search_knowledge_base`，Streamable HTTP `/mcp`），Claude Desktop / Cursor 可直接接入
+
+**和 RagTool 的关系？（一个内核两壳暴露）**
+
+RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（`@McpTool`，对外 MCP 协议）共用同一检索内核——对内不绕协议回环（性能），对外标准互通（生态）。
+
+---
+
+## 15. 语义缓存
+
+**Q：语义缓存怎么设计的？**
+
+相似问题命中直接返回旧答案：0 token、毫秒级。自定义 Advisor（放链最内层）+ Milvus 相似度检索（阈值 0.95）。
+
+**三重防护（每一重对应真实故障场景）：**
+
+1. **敏感词表跳过**：动态问题（"现在几点"）缓存必出错
+2. **多模态消息跳过**：带图的问题每次都要重新看图
+3. **TTL + 主动失效**：7 天过期；文档上传/删除时全量失效——这是语义缓存最大的坑，不清的话用户会一直拿到基于已删除文档的答案
+
+**为什么 Advisor 放最内层？**
+
+命中短路时，记忆读写和 Token 监控照常执行——缓存透明，账本不重复计账。
+
+---
+
+## 16. 历史数据生命周期（定时清理）
+
+**Q：历史数据越来越多怎么处理？**
+
+每天凌晨 3 点（@Scheduled）清理 180 天未活跃会话，四件套整删不留孤儿：聊天图片文件 → 消息原文 → 摘要 → 会话记录。
+
+**三个设计决策：**
+
+- **会话记录最后删（幂等锚）**：中途失败，下轮任务重新扫到该会话重删——每一步都幂等，可安全重试
+- **图片先扫后删**：消息删了就提取不到图片 URL 了，顺序不能反
+- **分批 LIMIT + 止损**：每批 100 个会话防大事务；整批失败退出防 while 死循环
+
+Task 薄壳（@Scheduled 只管触发）+ Service 核心（清理逻辑）分层：将来换 XXL-Job 等平台化调度，业务代码零改动。
+
+---
+
+## 17. 测试分层与 CI
+
+**Q：测试怎么做的？**
+
+两层测试策略，CI 零外部依赖：
+
+| 层 | 技术 | 跑法 | 说明 |
+|---|------|------|------|
+| 纯单测 | JUnit 5 + Mockito | `mvnw test`（CI 跑这个） | mock 依赖不连库，秒级；核心组件全覆盖 |
+| 集成测试 | @SpringBootTest + @Tag("integration") | `mvnw test -Dgroups=integration` | 真实调通义 API + Milvus，本地手动跑 |
+
+CI（GitHub Actions）：push/PR 触发，后端 `mvnw verify`（surefire 排除 integration 组）+ 前端 `npm run build` 双 job，绿色徽章挂 README。
+
+单测示例：ReadLimitChatMemory 7 个用例覆盖写入透传/读取截断/SYSTEM 豁免/边界值——纯 mock 验证装饰器行为，不启动 Spring。
+
+---
+
 ## 技术栈速查
 
 | 分类 | 技术 |
 |------|------|
 | 后端框架 | Spring Boot 4 + Spring AI 2.0 |
-| AI 能力 | Spring AI Function Calling + RAG + Advisor 链 |
+| AI 能力 | Spring AI Function Calling + RAG 五段链 + Advisor 链 |
+| 互操作 | MCP Client + MCP Server（Streamable HTTP） |
 | 向量数据库 | Milvus 2.4 |
 | 关系数据库 | MySQL 8.0 |
 | 缓存/会话 | Redis 7 |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j（熔断） + Guava RateLimiter（限流） |
 | 可观测性 | Langfuse |
+| 测试 | JUnit 5 + Mockito（单测）/ @Tag 集成测试 / GitHub Actions CI |
 | 前端 | Vue 3 + Element Plus + SSE 流式 |
 | 部署 | Docker + Docker Compose |
 

@@ -1,5 +1,6 @@
 package com.liwx.learning.rag;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @see org.springframework.ai.embedding.EmbeddingModel
  */
 @SpringBootTest
+@Tag("integration")  // 集成测试：需 Milvus + API Key，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
 class EmbeddingModelTest {
 
     // EmbeddingModel 的注入原理和 ChatModel 一样：

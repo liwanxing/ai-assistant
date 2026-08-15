@@ -1,5 +1,6 @@
 package com.liwx.learning.rag;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @see VectorStore
  */
 @SpringBootTest
+@Tag("integration")  // 集成测试：需 Milvus + API Key，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
 class VectorStoreTest {
 
     @Autowired

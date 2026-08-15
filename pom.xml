@@ -254,6 +254,16 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- 排除 @Tag("integration") 的集成测试（需 MySQL/Milvus/API Key，CI 和 mvn test 跑不了）:
+					     mvn test 只跑纯单测（秒级、零外部依赖）；
+					     本地想跑集成测试：mvn test -Dgroups=integration -->
+					<excludedGroups>integration</excludedGroups>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 

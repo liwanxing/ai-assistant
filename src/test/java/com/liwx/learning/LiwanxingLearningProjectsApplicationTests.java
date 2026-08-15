@@ -1,5 +1,6 @@
 package com.liwx.learning;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -9,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * 如果失败，通常是某个自动配置缺少必要参数或依赖。
  */
 @SpringBootTest
+@Tag("integration")  // 集成测试：加载完整上下文需 MySQL/Milvus/Redis/API Key，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
 class LiwanxingLearningProjectsApplicationTests {
 
 	@Test

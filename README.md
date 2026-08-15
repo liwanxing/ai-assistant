@@ -1,79 +1,115 @@
 # liwanxing-learning-projects
 
-基于 Spring Boot 4 + Spring AI 2.0 的智能助手学习项目，涵盖 RAG 知识库、Agent Function Calling、多层记忆、熔断保护等 AI 应用核心能力。
+[![CI](https://github.com/liwanxing/liwanxing-learning-projects/actions/workflows/ci.yml/badge.svg)](https://github.com/liwanxing/liwanxing-learning-projects/actions/workflows/ci.yml)
 
-## 功能一览
+基于 **Spring Boot 4 + Spring AI 2.0** 的企业级智能助手，完整覆盖 LLM 应用工程的核心链路：Agent 工具调用、RAG 质量优化、多层记忆、语义缓存、MCP 双向互通、可观测性与数据生命周期管理。
+
+> 一个从 0 演进到生产化思维的 AI 应用：不只是"能跑"，还回答了**"为什么这样设计、还能怎么坏、坏了怎么办"**。设计取舍详见 [DESIGN.md](DESIGN.md)。
+
+## 功能总览
 
 ### 智能助手（Agent 模式）
 
-模型根据用户问题自主选择调用哪个工具，无需手写路由逻辑：
+模型根据问题自主决定调用哪个工具，无需手写路由逻辑；前端 SSE 流式输出，支持图片上传多模态对话：
 
-| 工具 | 能力 | 触发示例 |
-|------|------|---------|
-| **RagTool** | 知识库向量检索 + Rerank 重排序 | "请假怎么请？" |
-| **TimeTool** | 查询当前时间 | "现在几点？" |
-| **WeatherTool** | 高德 API 查天气 | "北京天气怎么样？" |
-| **UserQueryTool** | 查询系统用户、角色、权限 | "系统有多少用户？" |
-| **GraphTool** | 经营分析（调 Java Graph 工作流） | "分析最近销售趋势" |
-| **ResearchTool** | 深度调研（调 Python LangGraph Agent） | "调研主流的 Java AI 框架" |
+| 工具 | 能力 | 来源 |
+|------|------|------|
+| **RagTool** | 知识库混合检索 + Rerank 重排 + 置信度门控 | 本地 |
+| **ResearchTool** | 深度调研（调 Python LangGraph Agent，熔断保护） | HTTP 跨语言 |
+| **WeatherTool** | 高德 API 天气查询 | HTTP |
+| **UserQueryTool** | 查询系统用户/角色/权限 | 本地 MySQL |
+| **TimeTool** | 当前时间 | 本地 |
+| **graph-analysis** | 经营分析（MCP Client 动态发现） | MCP 远程，开关可关 |
 
 ![智能助手](docs/images/chat.png)
 
-### 三层记忆系统
+### RAG 检索质量链路（核心亮点）
 
-| 层级 | 实现 | 特点 |
+不是"向量检索一把梭"，而是五段式质量流水线，每段都有明确的工程理由：
+
+```
+用户提问 "那个报销的东西在哪点"
+  ↓ ① 查询改写（qwen-flash，Multi-Query）："费用报销流程 操作入口" 等 3 个变体，口语→规范提升召回
+  ↓ ② 混合检索：向量（语义）+ MySQL 全文（字面）两路并行，单路失败降级不拖全局
+  ↓ ③ 合并去重 → Rerank 精排（gte-rerank-v2，用原始查询对齐真实意图）
+  ↓ ④ 置信度门控：top1 分数低于阈值 → 拒答"知识库暂无相关资料"，防"弱相关资料硬答"式幻觉
+  ↓ ⑤ 生成回答（基于检索资料）
+  旁路：语义缓存——相似问题命中直接返回（0 token、毫秒级）
+```
+
+### MCP 双向互通
+
+一个项目同时扮演两种角色，"一个内核，两壳暴露"：
+
+- **MCP Client**：消费 graph-learning-java 项目暴露的经营分析工具（`MCP_ENABLED` 开关控制，不强依赖远程服务）
+- **MCP Server**：把 RAG 知识库暴露为标准 MCP 工具（`search_knowledge_base`），Claude Desktop / Cursor 等外部 AI 客户端可直接接入本项目知识库（Streamable HTTP，端点 `/mcp`）
+
+### 三层记忆系统（存用分离）
+
+| 层级 | 实现 | 说明 |
 |------|------|------|
-| **短期窗口** | Spring AI ChatMemory（MySQL） | 同一会话内记住上下文，窗口自动裁剪 |
-| **对话摘要** | ConversationSummaryService | 消息超窗口时自动压缩旧消息为摘要 |
-| **长期记忆** | UserMemoryService（MySQL + Milvus 双写） | AI 自动提取用户偏好，跨所有会话生效 |
+| **短期窗口** | ChatMemory（MySQL） | **存储 500 条 / 模型上下文 30 条分离**：数据库是完整档案（约 250 轮可回看），模型只看滑动窗口 |
+| **滚动摘要** | ConversationSummaryAdvisor | 溢出消息自动压缩成摘要注入 system，早期对话不丢失 |
+| **长期记忆** | UserMemoryService（MySQL+Milvus 双写） | AI 自动提取用户偏好，跨所有会话语义召回 |
 
 ![记忆管理](docs/images/memory.png)
 
 ### 知识库管理
 
-文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分 → 向量化，支持 TOKEN / FIXED_LENGTH / SEMANTIC 三种切分策略，异步处理 + 状态轮询 + 失败重试。
+文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分（TOKEN/FIXED/SEMANTIC 三策略）→ 向量化入 Milvus，异步处理 + 状态轮询 + 失败重试；删除时同步清 Milvus 向量 + 本地文件 + 记录，并主动失效语义缓存。
 
 ![知识库管理](docs/images/rag-docs.png)
 
-### 工程实践亮点
+### 数据生命周期管理
 
-- **统一异常处理**：`GlobalExceptionHandler` + `BusinessException` + `ResultCode` 枚举，所有接口返回统一 `{code, message, data}` 格式
-- **Sa-Token 认证授权**：RBAC 五表模型 + Redis 会话存储 + 注解级权限校验
-- **Resilience4j 熔断保护**：外部服务（Python Agent）自动熔断 + 降级响应
-- **Guava 用户级限流**：每用户 QPS 限制，Cache 自动清理不活跃限流器
-- **AOP 日志切面**：所有 Controller 方法自动记录入参、耗时、异常
-- **Langfuse 可观测性**：AI 调用链路追踪（输入/输出/token 用量/延迟）
+历史数据不会无限膨胀：每天凌晨 3 点定时清理 180 天未活跃的会话"四件套"（消息原文 + 摘要 + 聊天图片文件 + 会话记录），锚定删除保证幂等可重试，分批执行防大事务。
+
+## 技术亮点与设计取舍
+
+> 每条都对应真实的工程问题，面试聊项目的弹药库（完整版见 [DESIGN.md](DESIGN.md)）
+
+1. **置信度门控防幻觉**：Rerank 分数不是概率是相对值，阈值宁低勿高（0.3 起步）——设高了把该答的拒掉，比答得一般更伤体验；校准方法是跑批量评估看分数分布
+2. **记忆存用分离（装饰器模式）**：`MessageWindowChatMemory` 默认把"存多少"和"模型看多少"绑死（30 条物理删除，历史回看断裂）。用 `ReadLimitChatMemory` 装饰 `get()` 只截读取，存储放开到 500——摘要压缩逻辑零改动，回看接口不受影响
+3. **一个内核两壳暴露**：RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（`@McpTool`，对外 MCP 协议）共用同一检索内核——对内不绕协议回环，对外标准互通
+4. **语义缓存三重防护**：敏感词表跳过动态问题（"现在几点"缓存必出错）、多模态消息跳过、TTL + 文档变更主动失效；Advisor 放最内层——命中短路时记忆读写和 Token 监控照常执行，账本不重复计账
+5. **多路检索并行化**：`CompletableFuture.allOf` 协调 4 路变体检索，单路失败降级空结果不拖全局；固定小线程池 + `CallerRunsPolicy` 天然背压——满载时压力回传调用方而不是丢任务
+6. **幂等删除 + 锚定重试**：清理会话时"会话记录"最后删——中途失败，下轮任务能重新扫到重删（每步幂等）；整批失败则止损退出，防 while 死循环
+7. **跨语言/跨系统 Agent 协作**：Java 主 Agent + Python LangGraph（深度调研，Resilience4j 熔断保护）+ MCP 消费另一个 Java 项目的分析工具——三种集成方式（HTTP 工具、MCP、本地工具）各就其位
+8. **流式输出的现实工程**：绕开 DashScope 流式工具调用 ID 为空的 bug（同步调用 + 拆行 SSE 假流），同时解决 SSE 换行丢事件问题
 
 ## 架构图
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                      前端（Vue 3 + Element Plus）          │
-│    智能助手 │ 知识库管理 │ 记忆管理 │ 用户管理 │ 登录      │
-└──────────────────────┬───────────────────────────────────┘
-                       │ HTTP / SSE
-┌──────────────────────┴───────────────────────────────────┐
-│                   后端（Spring Boot 4 + Spring AI 2.0）    │
-│                                                           │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │ Agent 对话   │  │  Advisor 链   │  │  记忆系统       │  │
-│  │ 6 工具注册   │  │  短期+摘要+长期│  │  MySQL+Milvus  │  │
-│  └──────┬──────┘  └──────────────┘  └─────────────────┘  │
-│         │                                                 │
-│  ┌──────┴──────────────────────────────────────────────┐ │
-│  │              Function Calling 工具                   │ │
-│  ├── RagTool ──→ Milvus 向量检索 + Rerank              │ │
-│  ├── GraphTool ──→ HTTP → graph-learning-java (8081)   │ │
-│  ├── ResearchTool → HTTP → Python Agent (8000)         │ │
-│  ├── UserQueryTool ──→ MySQL                          │ │
-│  ├── WeatherTool ──→ 高德 API                         │ │
-│  └── TimeTool ──→ 系统时间                            │ │
-└───────────────────────────────────────────────────────┘
-         │                    │                    │
-    ┌────┴────┐         ┌────┴─────┐        ┌────┴─────┐
-    │ MySQL   │         │ Milvus   │        │ Redis    │
-    │ 8.0    │         │ 2.4     │        │ 7       │
-    └────────┘         └──────────┘        └──────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                    前端（Vue 3 + Element Plus）                 │
+│      智能助手（SSE 流式/图片） │ 知识库 │ 记忆管理 │ 用户管理    │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ HTTP / SSE
+┌───────────────────────────┴───────────────────────────────────┐
+│                 后端（Spring Boot 4 + Spring AI 2.0）           │
+│                                                                │
+│  请求流：Advisor 链（Token 监控 → 长期记忆 → 短期记忆[读取截断]  │
+│          → 滚动摘要 → 语义缓存[命中短路] → LLM）                 │
+│                                                                │
+│  ┌──────────────── Agent 工具（Function Calling）────────────┐ │
+│  │ RagTool     ：改写→混合检索(并行)→Rerank→置信度门控        │ │
+│  │ ResearchTool：HTTP→Python LangGraph(熔断保护)             │ │
+│  │ WeatherTool / TimeTool / UserQueryTool                    │ │
+│  │ graph-analysis：MCP Client 动态发现（开关可关）             │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│                                                                │
+│  ┌── MCP Server（对外）──────────┐  ┌── 数据生命周期 ────────┐  │
+│  │ search_knowledge_base         │  │ 定时清理 180 天会话     │  │
+│  │ Claude Desktop/Cursor 可接入  │  │ 四件套幂等删除          │  │
+│  └───────────────────────────────┘  └────────────────────────┘  │
+└───────────────────────────────────────────────────────────────┘
+        │                │                │               │
+   ┌────┴────┐     ┌─────┴────┐     ┌─────┴─────┐   ┌────┴─────┐
+   │ MySQL   │     │ Milvus   │     │ Redis     │   │ Python   │
+   │ 业务+记忆│     │ 向量+缓存│     │ Sa-Token  │   │ Agent    │
+   └─────────┘     └──────────┘     └───────────┘   └──────────┘
+                                        │
+                                  Langfuse（LLM 可观测）
 ```
 
 ## 快速开始
@@ -81,7 +117,7 @@
 ### 前置要求
 
 - Docker + Docker Compose
-- Java 21 + Maven
+- Java 21 + Maven（项目自带 Maven Wrapper）
 - Node.js 24 + npm
 
 ### 1. 配置 API Key
@@ -114,7 +150,7 @@ IDEA 运行 `LiwanxingLearningProjectsApplication`，或：
 .\mvnw.cmd spring-boot:run
 ```
 
-访问 http://localhost:8080
+访问 http://localhost:8080 （接口文档：http://localhost:8080/doc.html）
 
 ### 4. 启动前端
 
@@ -125,6 +161,22 @@ npm run dev
 ```
 
 访问 http://localhost:5173
+
+### 5.（可选）外部 AI 客户端接入知识库
+
+Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即可让它们检索本项目的 RAG 知识库。
+
+### 运行测试
+
+测试分两层，CI（GitHub Actions）只跑第一层，零外部依赖：
+
+```bash
+# 纯单元测试：Mockito mock 依赖，秒级完成，不需要数据库/API Key（CI 跑的就是这个）
+.\mvnw.cmd test
+
+# 集成测试：真实调通义 API + Milvus（本地环境就绪后手动跑）
+.\mvnw.cmd test -Dgroups=integration
+```
 
 ### 默认账号
 
@@ -138,15 +190,16 @@ npm run dev
 
 | 分类 | 技术 |
 |------|------|
-| 后端 | Spring Boot 4 + Spring AI 2.0 |
-| AI 能力 | Function Calling + RAG + Advisor 链 |
+| 后端 | Spring Boot 4 + Spring AI 2.0 + MyBatis |
+| AI 能力 | Function Calling + RAG 五段链 + Advisor 链 + 三层记忆 |
+| 互操作 | MCP Client + MCP Server（Streamable HTTP） |
 | 数据库 | MySQL 8.0 + Milvus 2.4 + Redis 7 |
-| 认证授权 | Sa-Token + RBAC |
-| 服务保护 | Resilience4j + Guava RateLimiter |
-| 可观测性 | Langfuse |
+| 认证授权 | Sa-Token + RBAC 五表模型 |
+| 服务保护 | Resilience4j 熔断 + Guava 用户级限流 |
+| 可观测性 | Langfuse 全链路追踪 + Token 用量监控 |
 | 前端 | Vue 3 + Element Plus + SSE 流式 |
 | 部署 | Docker + Docker Compose |
 
 ## 更多
 
-- [工程设计与思考](DESIGN.md) — 项目中的设计决策与踩坑经验
+- [工程设计与思考](DESIGN.md) — 设计决策、取舍理由与踩坑经验（面试素材）
