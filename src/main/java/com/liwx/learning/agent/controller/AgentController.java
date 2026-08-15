@@ -11,14 +11,11 @@ import com.liwx.learning.agent.tool.TimeTool;
 import com.liwx.learning.agent.tool.UserQueryTool;
 import com.liwx.learning.agent.tool.WeatherTool;
 import com.liwx.learning.common.FileValidator;
-import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.core.io.FileSystemResource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
-import org.springframework.util.MimeType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -151,29 +148,34 @@ public class AgentController {
         log.info("Agent 收到图片对话：userId={}, question={}, sessionId={}, imageSize={}KB",
                 userId, question, sessionId, imageFile.getSize() / 1024);
 
-        // 1. 保存图片到磁盘
-        String filename = UUID.randomUUID() + ext;
-        Path imageDir = Path.of(uploadDir, "chat-images").toAbsolutePath();
-        Files.createDirectories(imageDir);
-        Path dest = imageDir.resolve(filename);
-        imageFile.transferTo(dest.toFile());
-        String imageUrl = "/uploads/chat-images/" + filename;
+        try {
+            // 1. 保存图片到磁盘
+            String filename = UUID.randomUUID() + ext;
+            Path imageDir = Path.of(uploadDir, "chat-images").toAbsolutePath();
+            Files.createDirectories(imageDir);
+            Path dest = imageDir.resolve(filename);
+            imageFile.transferTo(dest.toFile());
+            String imageUrl = "/uploads/chat-images/" + filename;
 
-        // 2. 确定 MIME 类型
-        String contentType = switch (ext) {
-            case ".png" -> "image/png";
-            case ".jpg", ".jpeg" -> "image/jpeg";
-            case ".gif" -> "image/gif";
-            case ".webp" -> "image/webp";
-            default -> "image/png";
-        };
+            // 2. 确定 MIME 类型
+            String contentType = switch (ext) {
+                case ".png" -> "image/png";
+                case ".jpg", ".jpeg" -> "image/jpeg";
+                case ".gif" -> "image/gif";
+                case ".webp" -> "image/webp";
+                default -> "image/png";
+            };
 
-        // 3. 调用 AiClientService：@CircuitBreaker 保护，连续失败自动熔断降级
-        String response = aiClientService.chatWithImage(
-                question, sessionId, userId,
-                imageUrl, contentType,
-                new FileSystemResource(dest));
-        return toSseFlux(response);
+            // 3. 调用 AiClientService：@CircuitBreaker 保护，连续失败自动熔断降级
+            String response = aiClientService.chatWithImage(
+                    question, sessionId, userId,
+                    imageUrl, contentType,
+                    new FileSystemResource(dest));
+            return toSseFlux(response);
+        } catch (Exception e) {
+            log.error("图片对话处理失败", e);
+            return Flux.just("图片处理失败，请重试", "[DONE]");
+        }
     }
 
     /**

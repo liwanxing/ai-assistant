@@ -5,10 +5,15 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeType;
 import lombok.extern.slf4j.Slf4j;
+
+import jakarta.annotation.PostConstruct;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * AI 调用 Service 层
@@ -23,17 +28,23 @@ import lombok.extern.slf4j.Slf4j;
 public class AiClientService {
 
     private final ChatClient chatClient;
-    private final String agentSystemPrompt;
-    private final String agentImageSystemPrompt;
+    private String agentSystemPrompt;
+    private String agentImageSystemPrompt;
 
-    public AiClientService(ChatClient chatClient,
-                           org.springframework.beans.factory.ObjectProvider<Resource> agentSystemPromptProvider,
-                           org.springframework.beans.factory.ObjectProvider<Resource> agentImageSystemPromptProvider) throws java.io.IOException {
+    @Value("classpath:prompts/agent-system.st")
+    private Resource agentSystemPromptResource;
+
+    @Value("classpath:prompts/agent-image-system.st")
+    private Resource agentImageSystemPromptResource;
+
+    public AiClientService(ChatClient chatClient) {
         this.chatClient = chatClient;
-        this.agentSystemPrompt = agentSystemPromptProvider.getIfAvailable()
-                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        this.agentImageSystemPrompt = agentImageSystemPromptProvider.getIfAvailable()
-                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @PostConstruct
+    void loadPrompts() throws IOException {
+        this.agentSystemPrompt = agentSystemPromptResource.getContentAsString(StandardCharsets.UTF_8);
+        this.agentImageSystemPrompt = agentImageSystemPromptResource.getContentAsString(StandardCharsets.UTF_8);
     }
 
     /**
