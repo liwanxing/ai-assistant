@@ -11,6 +11,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -59,6 +60,9 @@ public class RagTool {
     private final RagChunkMapper ragChunkMapper;
     private final QueryRewriteService queryRewriteService;
 
+    /** 置信度门控阈值：Rerank top1 分数低于它就拒答（见 searchKnowledge 里的门控注释） */
+    private final double rerankMinScore;
+
     /**
      * 检索专用线程池：变体最多 4 路（原查询 + 3 个变体），固定 4 线程刚好一路一线程
      *
@@ -73,11 +77,13 @@ public class RagTool {
     private final ExecutorService retrievalPool;
 
     public RagTool(VectorStore vectorStore, RerankService rerankService, RagChunkMapper ragChunkMapper,
-                   QueryRewriteService queryRewriteService) {
+                   QueryRewriteService queryRewriteService,
+                   @Value("${rag.rerank.min-score:0.3}") double rerankMinScore) {
         this.vectorStore = vectorStore;
         this.rerankService = rerankService;
         this.ragChunkMapper = ragChunkMapper;
         this.queryRewriteService = queryRewriteService;
+        this.rerankMinScore = rerankMinScore;
         ThreadPoolExecutor pool = new ThreadPoolExecutor(
                 4, 4,
                 60L, TimeUnit.SECONDS,
@@ -161,6 +167,24 @@ public class RagTool {
             // 3. Rerank 重排序：从全部候选中取最相关的 3 条
             //    注意用原查询而不是变体：Rerank 要对齐用户的真实意图，变体只是检索手段
             List<Document> reranked = rerankService.rerank(query, allCandidates, 3);
+
+            // 3.5 置信度门控（confidence gate）：RAG 最大的幻觉来源不是模型乱编，
+            //     而是“检索到一堆不相关资料还硬答”。top1 分数低于阈值 = 检索没命中，
+            //     明确拒答比硬塞弱相关资料给模型更可靠（拒答话术由模型转述给用户）。
+            //     注意：rerank 分数不是概率，只是相对值；阈值宁低勿高——设高会误杀该答的题。
+            //     校准方法：跑批量评估看日志里的分数分布，找到“该答/不该答”的分界点再调
+            if (reranked.isEmpty()) {
+                return "未找到相关资料";
+            }
+            // Rerank 失败降级时（RerankService 内部 catch）返回的文档没有 rerank_score，
+            // 取不到分数默认放行：Rerank 挂了不能把正常检索也拒了
+            double topScore = reranked.get(0).getMetadata().get("rerank_score") instanceof Number n
+                    ? n.doubleValue() : 1.0;
+            log.info("置信度门控：top1 分数 {}，阈值 {}", String.format("%.3f", topScore), rerankMinScore);
+            if (topScore < rerankMinScore) {
+                log.info("门控触发，拒答防幻觉（top1={} < 阈值 {}）", topScore, rerankMinScore);
+                return "知识库中没有找到与该问题足够相关的资料，无法可靠回答。请换个问法，或确认该问题是否属于知识库的覆盖范围。";
+            }
 
             // 4. 拼接成文本返回给模型
             StringBuilder result = new StringBuilder();

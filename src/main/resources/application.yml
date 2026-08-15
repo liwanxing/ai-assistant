@@ -129,6 +129,9 @@ rag:
   upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹
   rerank:
     model: gte-rerank-v2  # 通义重排序模型，对检索结果按相关性重新打分排序
+    min-score: 0.3        # 置信度门控阈值：Rerank 后 top1 分数低于此值判定为“检索没命中”，拒答防幻觉
+                          # （防“检索到弱相关资料还硬答”）。分数不是概率，是相对值；宁低勿高——
+                          # 设高会误杀该答的题。校准：跑批量评估看日志分数分布，想更严可调到 0.5
   query-rewrite:
     enabled: true          # 查询改写开关：检索前把口语化查询改写成多个规范变体分别检索（Multi-Query），
                           # 跑基线对比时设为 false 可回到单查询行为

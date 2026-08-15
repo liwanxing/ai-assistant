@@ -93,7 +93,12 @@ public class RerankService {
                 reranked.add(doc);
             }
 
-            log.info("Rerank 完成: {} 条候选 → {} 条精选", documents.size(), reranked.size());
+            // 打出各条分数：校准 rag.rerank.min-score 阈值就看这个分布——
+            // 跑一批“知识库有答案”和“没有答案”的问题，看两类分数的分界点在哪
+            List<String> scores = reranked.stream()
+                    .map(d -> String.format("%.3f", (Double) d.getMetadata().get("rerank_score")))
+                    .toList();
+            log.info("Rerank 完成: {} 条候选 → {} 条精选，分数: {}", documents.size(), reranked.size(), scores);
             return reranked;
 
         } catch (Exception e) {
