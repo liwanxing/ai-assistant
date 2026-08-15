@@ -37,18 +37,23 @@ import lombok.extern.slf4j.Slf4j;
 public class AiConfig {
 
     /**
-     * 多轮对话记忆：对话历史存 MySQL，滑动窗口最多保留 20 条消息
+     * 多轮对话记忆：对话历史存 MySQL（存用分离：这里只管「存」，模型「看多少」在下方 chatClient 里截断）
      *
      * JdbcChatMemoryRepository 由 Spring AI 自动配置创建：检测到 pom 里的 jdbc starter +已有的 DataSource，
      * 自动连上 MySQL，启动时建表 SPRING_AI_CHAT_MEMORY（存 conversation_id、message 等字段）
+     *
+     * maxMessages=500 是物理存储上限（≈250 轮对话）：超了才删最旧的，
+     * 供 /messages 历史回看接口拿到完整档案；模型上下文只加载最近 30 条
+     * （见 chatClient 里的 ReadLimitChatMemory，摘要 Advisor 再压成 摘要+20 条）
      */
     @Bean
     public ChatMemory chatMemory(JdbcChatMemoryRepository repository) {
         ChatMemory delegate = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
-                .maxMessages(30)  // 30 = 摘要缓冲区：ConversationSummaryAdvisor 只取最近 20 条，多出 10 条用来压缩
+                .maxMessages(500)  // 物理存储上限 ≈250 轮；模型上下文窗口与它解耦（ReadLimitChatMemory 截 30）
                 .build();
         // 包装一层：多模态消息（含图片）存之前剥离 base64 媒体数据，只保留文本，避免数据库膨胀
+        // （此 Bean 在下方 chatClient 里还会被 ReadLimitChatMemory 再包一层，两层嵌套而非替换：本层管写入剥图，那层管读取截断）
         return new MediaStrippingChatMemory(delegate);
     }
 
@@ -72,7 +77,12 @@ public class AiConfig {
                 .defaultAdvisors(
                         new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
-                        MessageChatMemoryAdvisor.builder(chatMemory).build(),
+                        // 读取截断（存用分离）：存储窗口 500 条供回看，模型上下文只加载最近 30 条——
+                        // 在 Advisor 处包一层而不是包在 Bean 上，/messages 回看接口注入的是原始 Bean，拿全量
+                        // 30 = 摘要缓冲区：ConversationSummaryAdvisor 保留最近 20 条 + 10 条溢出压缩成摘要
+                        // 注：这里的 chatMemory 参数就是上面的 MediaStrippingChatMemory Bean——两层装饰器嵌套：
+                        // 外层（ReadLimit）截读取 30 条，内层（MediaStripping）写入时剥图片，各司其职互不替代
+                        MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor(),  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                         // 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。放最内层（order=1000）——
