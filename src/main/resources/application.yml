@@ -129,6 +129,10 @@ rag:
   upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹
   rerank:
     model: gte-rerank-v2  # 通义重排序模型，对检索结果按相关性重新打分排序
+  query-rewrite:
+    enabled: true          # 查询改写开关：检索前把口语化查询改写成多个规范变体分别检索（Multi-Query），
+                          # 跑基线对比时设为 false 可回到单查询行为
+    model: qwen-flash      # 改写用轻量模型：任务小、要求快和便宜，不值得动用主模型 qwen-plus
   retry:
     max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
     delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打

@@ -2,14 +2,13 @@ package com.liwx.learning.rag;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.liwx.learning.agent.tool.RagTool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.evaluation.RelevancyEvaluator;
 import org.springframework.ai.evaluation.EvaluationRequest;
 import org.springframework.ai.evaluation.EvaluationResponse;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -49,8 +48,14 @@ class RagEvaluationTest {
     @Autowired
     private ChatClient.Builder chatClientBuilder;
 
+    /**
+     * 检索入口用 RagTool（生产链路）而不是直连 vectorStore：
+     * RagTool 包含 查询改写 → 混合检索（向量+关键词）→ Rerank 完整链路，
+     * 评估它才是评估用户真实体验到的检索质量；直连 vectorStore 只能测裸向量召回。
+     * 改写开关在 application.yml 的 rag.query-rewrite.enabled，跑基线时设 false
+     */
     @Autowired
-    private VectorStore vectorStore;
+    private RagTool ragTool;
 
     private ChatClient chatClient;
     private RelevancyEvaluator relevancyEvaluator;
@@ -65,8 +70,8 @@ class RagEvaluationTest {
     /**
      * 评估：检索资料 → 生成回答 → 判断回答是否基于资料
      *
-     * 完整 RAG 链路：
-     *   1. 用户问题 → 向量检索 top3 资料
+     * 完整 RAG 链路（与生产一致）：
+     *   1. 用户问题 → RagTool（改写+混合检索+Rerank）拿 top3 资料
      *   2. 资料 + 问题 → LLM 生成回答
      *   3. RelevancyEvaluator 评估：回答是否真的来自检索资料（防幻觉）
      */
@@ -74,23 +79,12 @@ class RagEvaluationTest {
     void shouldEvaluateRagAnswerQuality() {
         String userQuestion = "公司的请假流程是什么？";
 
-        // 1. 向量检索
-        var documents = vectorStore.similaritySearch(SearchRequest.builder()
-                .query(userQuestion)
-                .topK(3)
-                .build());
+        // 1. 走生产检索链路：查询改写 → 混合检索 → Rerank，返回拼接好的【参考资料N】文本
+        String context = ragTool.searchKnowledge(userQuestion);
 
         System.out.println("========== RAG 质量评估 ==========");
         System.out.println("用户问题：" + userQuestion);
-        System.out.println("检索到 " + documents.size() + " 条资料");
-
-        // 2. 用检索到的资料生成回答
-        StringBuilder context = new StringBuilder();
-        for (int i = 0; i < documents.size(); i++) {
-            context.append("【资料").append(i + 1).append("】")
-                    .append(documents.get(i).getText())
-                    .append("\n\n");
-        }
+        System.out.println(context.isBlank() ? "未检索到资料" : "检索资料：\n" + context);
 
         String answer = chatClient.prompt()
                 .system("根据以下参考资料回答用户问题。如果资料中没有答案，请明确告知。" +
@@ -99,12 +93,11 @@ class RagEvaluationTest {
                 .call()
                 .content();
 
-        System.out.println("AI 回答：" + answer);
-
         // 3. 评估回答是否基于检索资料（防幻觉）
         EvaluationRequest evalRequest = new EvaluationRequest(userQuestion, answer);
         EvaluationResponse evalResponse = relevancyEvaluator.evaluate(evalRequest);
 
+        System.out.println("AI 回答：" + answer);
         System.out.println("评估通过：" + evalResponse.isPass());
         System.out.println("评分：" + evalResponse.getScore());
         System.out.println("反馈：" + evalResponse.getFeedback());
@@ -312,23 +305,13 @@ class RagEvaluationTest {
     }
 
     /**
-     * 单个问题的完整 RAG 评估流程：检索 → 生成 → 评估
+     * 单个问题的完整 RAG 评估流程：检索（RagTool 生产链路）→ 生成 → 评估
      */
     private EvaluationResponse evaluateSingleQuestion(String userQuestion) {
-        // 1. 向量检索
-        var documents = vectorStore.similaritySearch(SearchRequest.builder()
-                .query(userQuestion)
-                .topK(3)
-                .build());
+        // 1. 走生产检索链路：查询改写 → 混合检索 → Rerank，返回拼接好的【参考资料N】文本
+        String context = ragTool.searchKnowledge(userQuestion);
 
         // 2. 用检索到的资料生成回答
-        StringBuilder context = new StringBuilder();
-        for (int i = 0; i < documents.size(); i++) {
-            context.append("【资料").append(i + 1).append("】")
-                    .append(documents.get(i).getText())
-                    .append("\n\n");
-        }
-
         String answer = chatClient.prompt()
                 .system("根据以下参考资料回答用户问题。如果资料中没有答案，请明确告知。" +
                         "不要编造信息。\n\n参考资料：\n" + context)
