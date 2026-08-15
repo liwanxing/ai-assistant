@@ -199,13 +199,7 @@ HTTP 调用，统一 `POST /接口名 + {"query": "..."}` 格式。Java 项目�
 
 **Q：怎么做 AI 调用的监控？**
 
-Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 ChatClient 调用时上报：输入/输出、token 用量、延迟、工具调用记录。
-
-用 @ConditionalOnProperty(name=\"spring.ai.langfuse.enabled\", havingValue=\"true\") 控制 Bean 是否创建：
-- 没配 enabled=true → Bean 不存在 → AiConfig 里 @Autowired(required=false) 拿到 null → 不注册 LangfuseAdvisor
-- 配了 → Bean 存在 → 注册 LangfuseAdvisor，追踪调用链路
-
-开发环境不需要启动 Langfuse 服务，也不需要配 API Key，不影响项目启动。
+Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 ChatClient 调用时上报：输入/输出、token 用量、延迟、工具调用记录。条件注入——没配 API Key 时不生效，不影响开发环境。
 
 ---
 
@@ -219,19 +213,5 @@ Milvus 部署需要三件套（milvus-standalone + etcd + minio），Docker Comp
 
 ---
 
-## 技术栈速查
-
-| 分类 | 技术 |
-|------|------|
-| 后端框架 | Spring Boot 4 + Spring AI 2.0 |
-| AI 能力 | Spring AI Function Calling + RAG + Advisor 链 |
-| 向量数据库 | Milvus 2.4 |
-| 关系数据库 | MySQL 8.0 |
-| 缓存/会话 | Redis 7 |
-| 认证授权 | Sa-Token + RBAC 五表模型 |
-| 服务保护 | Resilience4j（熔断） + Guava RateLimiter（限流） |
-| 可观测性 | Langfuse |
-| 前端 | Vue 3 + Element Plus + SSE 流式 |
-| 部署 | Docker + Docker Compose |
 
 

@@ -14,11 +14,11 @@ import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryReposito
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import com.liwx.learning.rag.advisor.LangfuseAdvisor;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.web.client.RestClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestClient;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -61,7 +61,7 @@ public class AiConfig {
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
                                  ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
-                                 @Qualifier("langfuseRestClient") ObjectProvider<RestClient> langfuseRestClientProvider) {
+                                 @Autowired(required = false) RestClient langfuseRestClient) {
         // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
         // 联调时设环境变量 MCP_ENABLED=true，Spring AI 自动创建 McpToolCallbackProvider 后这里才生效
         ToolCallbackProvider toolCallbackProvider = mcpToolCallbackProvider.getIfAvailable();
@@ -74,8 +74,9 @@ public class AiConfig {
                         new SimpleLoggerAdvisor()  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
                 );
 
-        // Langfuse 可观测性：追踪每次 ChatClient 调用（条件注入，没配置 key 时不生效）
-        RestClient langfuseRestClient = langfuseRestClientProvider.getIfAvailable();
+        // Langfuse 可观测性：@ConditionalOnProperty 控制 Bean 是否创建
+        // 没配 spring.ai.langfuse.enabled=true → Bean 不存在 → langfuseRestClient = null → 不注册
+        // 配了 → Bean 存在 → 注册 LangfuseAdvisor，追踪每次 ChatClient 调用
         if (langfuseRestClient != null) {
             builder.defaultAdvisors(new LangfuseAdvisor(langfuseRestClient));
             log.info("Langfuse 可观测性已启用");
