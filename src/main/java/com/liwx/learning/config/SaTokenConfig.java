@@ -65,7 +65,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 "/favicon.ico",
                 "/swagger-ui/**",         // Swagger UI 资源
                 "/swagger-resources/**",  // Swagger 资源
-                "/uploads/chat-images/**"    // 聊天图片：前端 <img> 直接访问，不走 Controller 无法携带 token
+                "/uploads/chat-images/**",   // 聊天图片：前端 <img> 直接访问，不走 Controller 无法携带 token
+                "/mcp"                       // MCP Server 端点（Streamable HTTP）：外部 MCP 客户端（Claude Desktop / Cursor）不会携带登录 token，
+                                              // MCP 协议本身不含业务认证，生产环境应在网关层做 IP 白名单 / mTLS，而不是在这里搞登录态
         );
     }
 }

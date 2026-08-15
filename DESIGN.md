@@ -68,16 +68,6 @@ Closed（正常）→ 失败率超阈值 → Open（熔断，直接拒绝）→ 
 
 熔断器配置直接写在 `application.yml` 的 `resilience4j.circuitbreaker.instances` 下，不需要 Java 配置类。
 
-**为什么不用 @Retry？**
-
-Resilience4j 是全家桶，`@CircuitBreaker`（熔断）和 `@Retry`（重试）是它的两个独立注解，可以单独使用。不用 `@Retry` 的原因：
-
-- 当前是同步调用（`.call()`），重试可以工作
-- 将来千问修了 bug 换成流式（`.stream()`），流式 + 重试 = 内容重复（行业公认的难题）
-- 流式场景下重试应该由前端"重新生成"按钮处理，不是后端自动重试
-
-代码里预留了 `@Retry` 注释位置（注释掉的），同步调用场景需要时取消注释即可。
-
 **为什么不用 Hystrix？**
 
 Netflix 已停止维护，Resilience4j 是其替代者，且原生支持 Spring Boot 3/4，和 Spring AI 生态集成更好。

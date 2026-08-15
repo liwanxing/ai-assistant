@@ -1,7 +1,12 @@
 package com.liwx.learning.agent.service;
 
+import com.liwx.learning.agent.tool.RagTool;
+import com.liwx.learning.agent.tool.ResearchTool;
+import com.liwx.learning.agent.tool.TimeTool;
+import com.liwx.learning.agent.tool.UserQueryTool;
+import com.liwx.learning.agent.tool.WeatherTool;
+import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-// import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -37,6 +42,16 @@ public class AiClientService {
     @Value("classpath:prompts/agent-image-system.st")
     private Resource agentImageSystemPromptResource;
 
+    /**
+     * Agent 可用工具集（对内 Function Calling）
+     * 按 Class 注册：Spring AI 自动从 Spring 容器解析对应的 @Component Bean，依赖注入完好，
+     * 且不用在构造函数里堆 5 个工具参数
+     * 与对外 MCP 暴露是两条独立通道：这里给本项目的千问模型用；外部客户端走 RagMcpTools（@McpTool）
+     */
+    private static final Class<?>[] AGENT_TOOLS = {
+            RagTool.class, TimeTool.class, WeatherTool.class, UserQueryTool.class, ResearchTool.class
+    };
+
     public AiClientService(ChatClient chatClient) {
         this.chatClient = chatClient;
     }
@@ -49,33 +64,19 @@ public class AiClientService {
 
     /**
      * Agent 对话（文本）
+     *
      * @CircuitBreaker：连续失败超阈值时自动熔断，返回降级提示，不傻等超时
-     *
-     * @Retry 注解说明（Resilience4j 自带，不是 Spring Retry）：
-     *   Resilience4j 是全家桶，@CircuitBreaker（熔断）和 @Retry（重试）是它的两个独立注解。
-     *   为什么不用 @Retry：
-     *     1. 当前是同步调用（.call()），重试可以工作
-     *     2. 将来千问修了 bug 换成流式（.stream()），流式 + 重试 = 内容重复（行业公认的难题）
-     *     3. 流式场景下重试应该由前端"重新生成"按钮处理，不是后端自动重试
-     *   所以这里预留了 @Retry 注解的位置，如果将来同步调用的场景需要重试，取消注释即可
-     *   如果要换流式，删除 @Retry 注解，前端加"重新生成"按钮
-     *
      * 配置在 application.yml 的 resilience4j.circuitbreaker.instances.llmCircuitBreaker
      */
     @CircuitBreaker(name = "llmCircuitBreaker", fallbackMethod = "fallback")
-    // @Retry(name = "llmRetry", fallbackMethod = "fallback")  // 预留：同步调用可启用，流式调用不要用
     public String chat(String question, String sessionId, Long userId) {
         return chatClient.prompt()
                 .system(agentSystemPrompt)
                 .user(question)
-                .tools(com.liwx.learning.agent.tool.RagTool.class,
-                       com.liwx.learning.agent.tool.TimeTool.class,
-                       com.liwx.learning.agent.tool.WeatherTool.class,
-                       com.liwx.learning.agent.tool.UserQueryTool.class,
-                       com.liwx.learning.agent.tool.ResearchTool.class)
+                .tools(AGENT_TOOLS)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                    a.param(com.liwx.learning.rag.advisor.UserMemoryAdvisor.USER_ID, userId);
+                    a.param(UserMemoryAdvisor.USER_ID, userId);
                 })
                 .call()
                 .content();
@@ -85,7 +86,6 @@ public class AiClientService {
      * Agent 对话（图片 + 文本，多模态）
      */
     @CircuitBreaker(name = "llmCircuitBreaker", fallbackMethod = "fallbackWithImage")
-    // @Retry(name = "llmRetry", fallbackMethod = "fallbackWithImage")  // 预留：同步调用可启用，流式调用不要用
     public String chatWithImage(String question, String sessionId, Long userId,
                                 String imageUrl, String contentType,
                                 Resource imageResource) {
@@ -94,14 +94,10 @@ public class AiClientService {
                 .user(u -> u.text("![图片](" + imageUrl + ")\n\n" + question)
                         .media(MimeType.valueOf(contentType), imageResource))
                 .options(OpenAiChatOptions.builder().model("qwen-vl-plus"))
-                .tools(com.liwx.learning.agent.tool.RagTool.class,
-                       com.liwx.learning.agent.tool.TimeTool.class,
-                       com.liwx.learning.agent.tool.WeatherTool.class,
-                       com.liwx.learning.agent.tool.UserQueryTool.class,
-                       com.liwx.learning.agent.tool.ResearchTool.class)
+                .tools(AGENT_TOOLS)
                 .advisors(a -> {
                     a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                    a.param(com.liwx.learning.rag.advisor.UserMemoryAdvisor.USER_ID, userId);
+                    a.param(UserMemoryAdvisor.USER_ID, userId);
                 })
                 .call()
                 .content();

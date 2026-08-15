@@ -116,6 +116,14 @@
 		</dependency>
 
 
+		<!-- Spring AI MCP Server (WebMVC)：把 RAG 知识库暴露成标准 MCP 工具，供外部 AI 客户端（Claude Desktop / Cursor 等）调用 -->
+		<!-- WebMVC 变体：基于 Spring MVC 的 SSE / Streamable HTTP 传输，与主框架 webmvc 同源，不额外引入 WebFlux 服务器 -->
+		<!-- 版本由 spring-ai-bom 统一管理，与 MCP Client 保持同版本 -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+		</dependency>
+
 		<!-- Spring AI Tika 文档读取：支持 PDF、Word 等格式的文档解析 -->
 		<!-- TikaDocumentReader 把整个文件读成 Document，再交给 TokenTextSplitter 切分 -->
 		<dependency>

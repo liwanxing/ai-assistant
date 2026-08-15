@@ -1,7 +1,6 @@
 package com.liwx.learning.agent.tool;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-// import io.github.resilience4j.retry.annotation.Retry;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.core5.util.Timeout;
@@ -57,7 +56,6 @@ public class ResearchTool {
      */
     @Tool(description = "执行深度调研任务，对某个主题进行多步骤搜索、分析和总结。当用户需要深入调研某个技术主题、行业趋势、方案对比等需要联网搜索和综合分析的任务时调用此工具。")
     @CircuitBreaker(name = "researchCircuitBreaker", fallbackMethod = "fallback")
-    // @Retry(name = "researchRetry", fallbackMethod = "fallback")  // 预留：同步调用可启用，流式调用不要用（会导致内容重复）
     public String research(
             @ToolParam(description = "调研需求描述，如：调研主流的Java AI框架、对比Spring AI和LangChain4j") String query
     ) {

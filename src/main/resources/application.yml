@@ -57,6 +57,22 @@ spring:
             graph-analysis:                          # 连接名，随便取
               url: ${MCP_SERVER_URL:http://localhost:8081}  # 对方的 MCP Server 地址
 
+      # MCP Server：把本项目的 RAG 知识库暴露成标准 MCP 工具（扫描 RagMcpTools 的 @McpTool）
+      # 与上面的 client 共存：本项目既消费别人的 MCP 工具，也对外提供自己的 MCP 工具
+      server:
+        enabled: true
+        name: liwx-learning-mcp-server      # MCP Server 名称，客户端工具列表里显示的名字
+        version: 0.0.1
+        type: SYNC                          # 同步服务器：工具方法是阻塞式，与 WebMVC 线程模型匹配
+        # STREAMABLE：新版 MCP 传输标准（HTTP POST + 可选 SSE 下行），取代旧 SSE 传输（旧方式每个客户端长占一个连接，太耗服务器资源）
+        # Claude Desktop / Cursor 等主流客户端均已支持
+        protocol: STREAMABLE
+        # 注解扫描：自动发现 @Component 里带 @McpTool 注解的方法并注册为 MCP 工具
+        annotation-scanner:
+          enabled: true
+        streamable-http:
+          mcp-endpoint: /mcp                # MCP 端点，外部客户端连接 http://<host>:8080/mcp
+
     # Langfuse：LLM 可观测性平台，追踪每次 ChatClient 调用（输入/输出/token/延迟）
     # 本地开发用 application-local.yml 里的真实 Key，线上用环境变量注入
     langfuse:
