@@ -169,7 +169,13 @@
 			<version>2.4.0</version>
 		</dependency>
 
-		<!-- Micrometer Tracing + OpenTelemetry：Spring AI 观测性的底层依赖 -->
+				<!-- Apache HttpClient 5：RestClient 连接池，复用 TCP 连接避免每次请求都新建 -->
+		<dependency>
+			<groupId>org.apache.httpcomponents.client5</groupId>
+			<artifactId>httpclient5</artifactId>
+		</dependency>
+
+<!-- Micrometer Tracing + OpenTelemetry：Spring AI 观测性的底层依赖 -->
 		<!-- Spring AI 的 ObservationAdvisor 用 Micrometer 记录 trace，OTLP 负责把 trace 发到 Langfuse -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
@@ -244,3 +250,4 @@
 	</build>
 
 </project>
+

@@ -149,7 +149,23 @@ MySQL 存文本（精确查询、编辑、删除），Milvus 存向量（语义�
 
 ---
 
-## 8. 用户级限流
+## 8. RestClient 连接池
+
+**Q：外部 HTTP 调用怎么做性能优化的？**
+
+默认的 SimpleClientHttpRequestFactory 每次请求新建 TCP 连接（三次握手 → 请求 → 四次挥手），高并发下大量 TIME_WAIT 端口。
+
+用 Apache HttpClient 5 的 PoolingHttpClientConnectionManager 做连接池，全局共享一个 RestClient Bean：
+- 最多 200 个 TCP 连接同时存活
+- 每个目标地址最多 20 个并发连接
+- ResearchTool 复用连接池但设置 5 分钟读超时（深度调研耗时长）
+- WeatherTool 用默认的 5 秒超时
+
+面试一句话：连接池复用 TCP 连接，省掉握手开销，高并发下避免端口耗尽。
+
+---
+
+## 9. 用户级限流
 
 **Q：怎么做限流的？**
 
@@ -159,7 +175,7 @@ Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 �
 
 ---
 
-## 9. SSE 流式对话
+## 10. SSE 流式对话
 
 **Q：流式输出怎么做的？**
 
@@ -169,7 +185,7 @@ Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 �
 
 ---
 
-## 10. 跨语言 Agent 协作
+## 11. 跨语言 Agent 协作
 
 **Q：Java 项目怎么和 Python Agent 协作？**
 
@@ -179,7 +195,7 @@ HTTP 调用，统一 `POST /接口名 + {"query": "..."}` 格式。Java 项目�
 
 ---
 
-## 11. Langfuse 可观测性
+## 12. Langfuse 可观测性
 
 **Q：怎么做 AI 调用的监控？**
 
@@ -187,7 +203,7 @@ Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 
 
 ---
 
-## 12. Docker 部署
+## 13. Docker 部署
 
 **Q：怎么部署的？**
 

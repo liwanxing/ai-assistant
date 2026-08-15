@@ -14,6 +14,7 @@ import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryReposito
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import com.liwx.learning.rag.advisor.LangfuseAdvisor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -60,7 +61,7 @@ public class AiConfig {
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
                                  ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
-                                 ObjectProvider<RestClient> langfuseRestClientProvider) {
+                                 @Qualifier("langfuseRestClient") ObjectProvider<RestClient> langfuseRestClientProvider) {
         // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
         // 联调时设环境变量 MCP_ENABLED=true，Spring AI 自动创建 McpToolCallbackProvider 后这里才生效
         ToolCallbackProvider toolCallbackProvider = mcpToolCallbackProvider.getIfAvailable();

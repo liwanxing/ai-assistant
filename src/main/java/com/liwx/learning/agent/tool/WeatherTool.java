@@ -20,9 +20,11 @@ public class WeatherTool {
     @Value("${amap.api-key}")
     private String apiKey;
 
-    private final RestClient restClient = RestClient.builder()
-            .baseUrl("https://restapi.amap.com")
-            .build();
+    private final RestClient restClient;
+
+    public WeatherTool(RestClient restClient) {
+        this.restClient = restClient;
+    }
 
     @Tool(description = "查询指定城市的实时天气。当用户问今天天气、温度多少、要不要带伞、穿什么衣服时调用此工具。")
     public String getWeather(

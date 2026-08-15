@@ -1,5 +1,6 @@
 package com.liwx.learning.config;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,7 +19,7 @@ public class LangfuseConfig {
     @Value("${spring.ai.langfuse.url:}")
     private String baseUrl;
 
-    @Bean
+    @Bean("langfuseRestClient")
     public RestClient langfuseRestClient() {
         return RestClient.builder()
                 .baseUrl(baseUrl)

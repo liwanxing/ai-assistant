@@ -1,14 +1,17 @@
 package com.liwx.learning.agent.tool;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-// import io.github.resilience4j.retry.annotation.Retry;  // Resilience4j 自带重试，流式场景下不要用
-import lombok.extern.slf4j.Slf4j;
+// import io.github.resilience4j.retry.annotation.Retry;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 
@@ -29,15 +32,21 @@ public class ResearchTool {
 
     private final RestClient restClient;
 
-    // 构造器
-    public ResearchTool(@Value("${research.service-url:http://localhost:8000}") String serviceUrl) {
-        // ↑ 从 application.yml 读 research.service-url，没配就用默认值 localhost:8000
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);
-        factory.setReadTimeout(300000);  // 5 分钟，深度调研耗时长
+    /**
+     * 复用全局连接池，但设置 5 分钟读超时（深度调研耗时长）
+     */
+    public ResearchTool(PoolingHttpClientConnectionManager connectionManager,
+                        @Value("${research.service-url:http://localhost:8000}") String serviceUrl) {
         this.restClient = RestClient.builder()
                 .baseUrl(serviceUrl)
-                .requestFactory(factory) // 挂上超时配置
+                .requestFactory(new HttpComponentsClientHttpRequestFactory(
+                        HttpClients.custom()
+                                .setConnectionManager(connectionManager)
+                                .setDefaultRequestConfig(org.apache.hc.client5.http.config.RequestConfig.custom()
+                                        .setConnectTimeout(Timeout.ofSeconds(5))
+                                        .setResponseTimeout(Timeout.ofMinutes(5))
+                                        .build())
+                                .build()))
                 .build();
     }
 
