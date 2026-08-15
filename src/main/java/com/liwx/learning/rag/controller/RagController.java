@@ -10,6 +10,7 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
+import com.liwx.learning.rag.service.SessionCleanupService;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,6 +50,8 @@ public class RagController {
     private ChatSessionMapper chatSessionMapper;
     @Autowired
     private RagDocumentMapper ragDocumentMapper;
+    @Autowired
+    private SessionCleanupService sessionCleanupService;
 
     @Value("${rag.upload-dir}")
     private String uploadDir;
@@ -153,12 +157,13 @@ public class RagController {
     }
 
     /**
-     * 删除会话：删 rag_chat_session 记录 + 清空 SPRING_AI_CHAT_MEMORY 里的消息
+     * 删除会话：四件套彻底删（消息原文 + 摘要 + 聊天图片文件 + 会话记录）
+     * 复用 SessionCleanupService——与定时清理同一套逻辑；
+     * 旧版只删了会话记录+消息，摘要和聊天图片成孤儿残留，本次顺手修复
      */
     @DeleteMapping("/sessions/{sessionId}")
-    public Result<Void> deleteSession(@PathVariable String sessionId) {
-        chatSessionMapper.deleteBySessionId(sessionId);
-        chatMemory.clear(sessionId);
+    public Result<Void> deleteSession(@PathVariable String sessionId) throws IOException {
+        sessionCleanupService.deleteSessionFully(sessionId);
         return Result.success();
     }
 }

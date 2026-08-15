@@ -4,6 +4,7 @@ import com.liwx.learning.rag.entity.ChatSession;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -33,4 +34,11 @@ public interface ChatSessionMapper {
      * 删除会话（同时删 rag_chat_session 和 SPRING_AI_CHAT_MEMORY 里的记录）
      */
     int deleteBySessionId(@Param("sessionId") String sessionId);
+
+    /**
+     * 分批查过期会话 ID：update_time（最后活跃时间，每次发消息刷新）早于 before 的会话，
+     * LIMIT 分批防一次拉全量。定时清理任务用：删完一批再查下一批，直到查不到；
+     * ORDER BY update_time ASC 从最旧的删起，顺序确定可预测
+     */
+    List<String> selectExpiredIds(@Param("before") LocalDateTime before, @Param("limit") int limit);
 }

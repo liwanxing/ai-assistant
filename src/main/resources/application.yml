@@ -142,10 +142,17 @@ rag:
     enabled: true
     similarity-threshold: 0.95  # 命中阈值：很高，只匹配“换个问法的同一个问题”，
                                 # 多轮追问/相似但不同的问题不会误命中；想更激进可降到 0.90
-    ttl-days: 7                 # 缓存有效期（天）：兑底防旧答案，文档上传/删除时会主动全量失效
+    ttl-days: 7                 # 缓存有效期（天）：防止旧答案长期残留；文档上传/删除时会主动全量失效
   retry:
     max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
     delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打
+  # 历史数据定时清理：超过保留期的会话四件套整删（消息+摘要+聊天图片+会话记录），不留孤儿
+  # 触发在 HistoryCleanupTask（@Scheduled），逻辑在 SessionCleanupService
+  cleanup:
+    enabled: true                 # 本地开发不想删数据时设 false（任务照常调度但直接跳过）
+    retain-days: 180              # 保留期：最后活跃时间早于 180 天前的会话删除（一段式全删）
+    batch-size: 100               # 每批删除的会话数：分批防大事务（锁表/binlog 风暴）
+    cron: "0 0 3 * * ?"           # 每天凌晨 3 点执行（Quartz 6 域：秒 分 时 日 月 周，低峰期）
 
 # Graph 经营分析服务（graph-learning-java 项目）
 # 本地开发默认 http://localhost:8081，Docker 部署时用环境变量覆盖

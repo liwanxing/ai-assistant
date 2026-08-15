@@ -41,4 +41,14 @@
         DELETE FROM rag_chat_session WHERE session_id = #{sessionId}
     </delete>
 
+    <!-- 分批查过期会话：定时清理用。update_time = 最后活跃时间（每次发消息刷新），早于 before 即为过期；
+         XML 里 < 必须转义成 &lt;，否则会破坏 XML 结构 -->
+    <select id="selectExpiredIds" resultType="java.lang.String">
+        SELECT session_id
+        FROM rag_chat_session
+        WHERE update_time &lt; #{before}
+        ORDER BY update_time ASC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

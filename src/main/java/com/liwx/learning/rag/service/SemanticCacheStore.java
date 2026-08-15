@@ -128,7 +128,25 @@ public class SemanticCacheStore {
             cacheStore.delete(INVALIDATE_FILTER);
             log.info("语义缓存已全量失效（知识库文档发生变更）");
         } catch (Exception e) {
-            log.warn("语义缓存失效失败（缓存里可能残留旧答案，TTL 兜底）：{}", e.getMessage());
+            log.warn("语义缓存失效失败（残留旧答案将等 TTL 过期后由定时清理删除）：{}", e.getMessage());
+        }
+    }
+
+    /**
+     * 物理清理过期条目：lookup 里的 TTL 检查只是“查询时忽略”过期条目，
+     * 条目本身永远躺在 Milvus 里越积越多（每次写入都新增，永不删除）。
+     * 定时清理任务每天调一次，按 created_at 过滤条件真正删除——
+     * 和 invalidate 同一个 delete(filterExpression) 机制，只是过滤条件从“全部”变成“过期的”
+     */
+    public void purgeExpired() {
+        try {
+            // created_at 是写入时存的毫秒时间戳（见 saveAsync），早于 TTL 窗口起点的即为过期
+            String filter = "created_at < " + (System.currentTimeMillis() - ttlMs);
+            cacheStore.delete(filter);
+            log.info("语义缓存过期条目已物理清理（created_at 早于 {} 天前）", ttlMs / 24L / 60 / 60 / 1000);
+        } catch (Exception e) {
+            // 清理失败不影响主流程，明天定时任务会重试
+            log.warn("语义缓存物理清理失败（明天定时任务重试）：{}", e.getMessage());
         }
     }
 }

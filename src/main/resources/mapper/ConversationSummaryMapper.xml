@@ -17,4 +17,9 @@
             summarized_up_to = #{summarizedUpTo}
     </insert>
 
+    <!-- 删除会话摘要：删会话/定时清理时调用，防止孤儿摘要 -->
+    <delete id="deleteBySessionId">
+        DELETE FROM rag_conversation_summary WHERE session_id = #{sessionId}
+    </delete>
+
 </mapper>
