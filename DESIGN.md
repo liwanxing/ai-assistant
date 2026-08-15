@@ -1,0 +1,214 @@
+# 工程设计与思考
+
+> 本文档梳理项目中的工程设计决策与踩坑经验，聊到项目时的素材参考。
+
+---
+
+## 1. 统一异常处理
+
+**Q：你们项目怎么做异常处理的？**
+
+全局异常处理器（`@RestControllerAdvice`），所有 Controller 抛出的异常统一捕获，返回标准 `{code, message, data}` 格式，前端不用处理五花八门的错误格式。
+
+**异常分层：**
+
+| 异常类型 | 触发场景 | 处理方式 |
+|---------|---------|---------|
+| `BusinessException` | 业务逻辑校验失败（用户不存在、参数非法） | 捕获后返回对应业务错误码 |
+| `MethodArgumentNotValidException` | `@Valid` 参数校验失败 | 取第一条校验错误返回 |
+| `NotLoginException` | Sa-Token 拦截器：未登录 | 返回 401 |
+| `NotRoleException` / `NotPermissionException` | Sa-Token：角色/权限不足 | 返回 403 |
+| `Exception`（兜底） | 未预料的异常 | 返回 500，记录完整堆栈 |
+
+**为什么继承 RuntimeException 而不是 Exception？**
+
+Checked Exception 要求方法签名声明 `throws`，调用链每层都得加，代码臃肿。RuntimeException 不需要声明 `throws`，直接 throw，配合全局异常处理器兜底，代码干净。
+
+**为什么需要 Assert 工具类？**
+
+Service 层校验业务条件，不满足时直接 `Assert.notNull(user, ResultCode.NOT_FOUND)` 抛业务异常，避免 Controller 里到处写 if-null-return。本质是把防御性校验从 Controller 下沉到 Service。
+
+---
+
+## 2. Sa-Token 认证授权
+
+**Q：用的什么认证方案？为什么不用 Spring Security？**
+
+Sa-Token，轻量级权限框架。Spring Security 功能强大但配置复杂，Sa-Token 几行代码搞定登录拦截 + 权限校验，学习项目不需要 Security 的全部能力。
+
+**实现方式：**
+
+- 拦截器注册 `SaInterceptor`，拦截所有请求检查登录状态
+- 登录接口生成 Token，存 Redis（支持多设备同时登录）
+- 接口级权限用 `@SaCheckRole("admin")` / `@SaCheckPermission("user:delete")` 注解
+- RBAC 五表模型：用户 → 角色 → 权限，三张中间表
+
+**一个细节：SSE 流式接口的登录问题**
+
+SSE 连接建立时校验通过了，但流式响应完成后 Spring 会触发一次 async dispatch（第二次经过拦截器），此时 HTTP 上下文已销毁，用 Sa-Token 校验必报错。解决：拦截器里判断 `DispatcherType.ASYNC` 直接跳过。
+
+---
+
+## 3. Resilience4j 熔断器
+
+**Q：项目里怎么做服务保护的？**
+
+外部服务可能宕机或超时，没有熔断时每个请求都傻等 → Tomcat 线程耗尽 → 连正常请求都处理不了（级联故障）。
+
+用 Resilience4j 的 `@CircuitBreaker` 注解保护，工作原理类似电路开关：
+
+```
+Closed（正常）→ 失败率超阈值 → Open（熔断，直接拒绝）→ 等待时间到 → Half-Open（放少量请求试探）→ 成功回 Closed
+```
+
+**保护两个地方：**
+
+- **AiClientService**（LLM 主调用）：`@CircuitBreaker(name="llmCircuitBreaker")`，通义千问 API 异常时自动熔断降级
+- **ResearchTool**（Python Agent）：`@CircuitBreaker(name="researchCircuitBreaker")`，Python Agent 挂了时快速失败，不傻等 5 分钟超时
+
+熔断器配置直接写在 `application.yml` 的 `resilience4j.circuitbreaker.instances` 下，不需要 Java 配置类。
+
+**为什么不用 @Retry？**
+
+Resilience4j 是全家桶，`@CircuitBreaker`（熔断）和 `@Retry`（重试）是它的两个独立注解，可以单独使用。不用 `@Retry` 的原因：
+
+- 当前是同步调用（`.call()`），重试可以工作
+- 将来千问修了 bug 换成流式（`.stream()`），流式 + 重试 = 内容重复（行业公认的难题）
+- 流式场景下重试应该由前端"重新生成"按钮处理，不是后端自动重试
+
+代码里预留了 `@Retry` 注释位置（注释掉的），同步调用场景需要时取消注释即可。
+
+**为什么不用 Hystrix？**
+
+Netflix 已停止维护，Resilience4j 是其替代者，且原生支持 Spring Boot 3/4，和 Spring AI 生态集成更好。
+
+**和 Sentinel 的区别？**
+
+Sentinel 是阿里开源的流量治理平台，自带 Dashboard 控制台，适合几十个微服务统一管控、运行时动态调规则。Resilience4j 是纯嵌入式库，零外部依赖，和 Spring AI 生态直接集成。你的项目只需要应用内保护外部调用，不需要额外部署 Dashboard，Resilience4j 更轻量合适。
+
+
+## 4. Spring AI Function Calling（Agent 模式）
+
+**Q：Agent 是怎么实现的？**
+
+用 Spring AI 的 Function Calling 机制。注册 6 个工具（RagTool、TimeTool、WeatherTool 等），模型根据用户问题自主决定调哪个工具，不需要手写路由逻辑。
+
+问"请假怎么请" → 模型调 RagTool（查知识库）
+问"北京天气" → 模型调 WeatherTool（调高德 API）
+问"你好" → 不调工具，直接回答
+
+**和直接调 OpenAI API 的区别？**
+
+Spring AI 封装了 Tool 定义的 JSON Schema 生成、Tool Call 结果的序列化回传、多轮对话的消息管理。不用自己拼 Function Calling 的 JSON 格式。
+
+---
+
+## 5. RAG 知识库
+
+**Q：RAG 是怎么做的？**
+
+上传文档 → Tika 解析内容 → 切分成小段 → Embedding 向量化 → 存入 Milvus。用户提问时，先向量检索相关片段，再用 Rerank 模型重排序，把最相关的作为上下文注入给模型。
+
+**为什么需要 Rerank？**
+
+Embedding 向量检索是"粗筛"（语义相似度），Rerank 是"精排"（交叉编码器逐对比较相关性）。粗筛召回 20 条 → 精排后取 Top 5，准确率显著提升。
+
+**切分策略怎么选的？**
+
+支持 TOKEN / FIXED_LENGTH / SEMANTIC 三种。TOKEN 切分是默认，语义切分效果最好但依赖模型，Fixed Length 简单粗暴但可能切断句子。
+
+---
+
+## 6. 三层记忆系统
+
+**Q：记忆系统怎么设计的？**
+
+| 层级 | 存储 | 生命周期 | 说明 |
+|------|------|---------|------|
+| 短期窗口 | MySQL（`SPRING_AI_CHAT_MEMORY`） | 同一会话 | 滑动窗口 30 条，超出自动裁剪 |
+| 对话摘要 | MySQL | 跨会话 | 超过 20 轮时，旧消息压缩为摘要 |
+| 长期记忆 | MySQL + Milvus 双写 | 永久 | AI 自动提取用户偏好，跨所有会话生效 |
+
+**为什么双写 MySQL + Milvus？**
+
+MySQL 存文本（精确查询、编辑、删除），Milvus 存向量（语义检索）。用户说"我喜欢 Python"，长期记忆提取后存入，下次问相关问题时语义检索召回。
+
+**MediaStrippingChatMemory 是什么？**
+
+多模态消息（含图片）存数据库前剥离 base64 媒体数据，只保留文本，避免数据库膨胀。一个 base64 图片可能几 MB，存进去很快撑爆数据库。
+
+---
+
+## 7. AOP 日志切面
+
+**Q：怎么做接口日志的？**
+
+`@Aspect` 切面拦截所有 Controller 方法，环绕通知记录：方法名、入参、耗时、异常信息。不侵入业务代码，一个注解搞定。
+
+用 `@Around("execution(* com.liwx.learning..controller..*.*(..))")` 切所有 Controller 包下的方法。
+
+---
+
+## 8. 用户级限流
+
+**Q：怎么做限流的？**
+
+Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 秒 1 次）。Guava Cache 自动清理 1 小时不活跃用户的限流器，避免内存泄漏。
+
+为什么不用 Sentinel 或 Resilience4j 的 RateLimiter？用户数少、限流逻辑简单，Guava 最轻量，不需要引入额外框架。
+
+---
+
+## 9. SSE 流式对话
+
+**Q：流式输出怎么做的？**
+
+后端返回 `Flux<String>`（Spring WebFlux），前端用 `fetch` + `ReadableStream` 逐行读取 SSE 事件。
+
+**一个坑：** SSE 协议中换行是事件分隔符。如果整段 markdown 作为一个事件发出，前端只能收到第一行。解决：后端按 `\n` 拆成多行，每行单独走一个 `data:` 事件。
+
+---
+
+## 10. 跨语言 Agent 协作
+
+**Q：Java 项目怎么和 Python Agent 协作？**
+
+HTTP 调用，统一 `POST /接口名 + {"query": "..."}` 格式。Java 项目通过 `ResearchTool` 调 Python LangGraph Agent 的 `/research` 接口，拿到调研报告后返回给模型。
+
+后端到后端通信，不需要 CORS。Python Agent 独立部署，端口 8000。
+
+---
+
+## 11. Langfuse 可观测性
+
+**Q：怎么做 AI 调用的监控？**
+
+Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 ChatClient 调用时上报：输入/输出、token 用量、延迟、工具调用记录。条件注入——没配 API Key 时不生效，不影响开发环境。
+
+---
+
+## 12. Docker 部署
+
+**Q：怎么部署的？**
+
+Docker Compose 一键启动基础设施（MySQL + Redis + Milvus），应用本身本地开发用 IDEA + npm run dev，生产环境用 `docker-compose.prod.yml` 完整容器化。
+
+Milvus 部署需要三件套（milvus-standalone + etcd + minio），Docker Compose 里已经编排好。
+
+---
+
+## 技术栈速查
+
+| 分类 | 技术 |
+|------|------|
+| 后端框架 | Spring Boot 4 + Spring AI 2.0 |
+| AI 能力 | Spring AI Function Calling + RAG + Advisor 链 |
+| 向量数据库 | Milvus 2.4 |
+| 关系数据库 | MySQL 8.0 |
+| 缓存/会话 | Redis 7 |
+| 认证授权 | Sa-Token + RBAC 五表模型 |
+| 服务保护 | Resilience4j（熔断） + Guava RateLimiter（限流） |
+| 可观测性 | Langfuse |
+| 前端 | Vue 3 + Element Plus + SSE 流式 |
+| 部署 | Docker + Docker Compose |
+

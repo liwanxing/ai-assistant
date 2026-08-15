@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.util.concurrent.RateLimiter;
+import com.liwx.learning.agent.service.AiClientService;
 import com.liwx.learning.agent.tool.ResearchTool;
 import com.liwx.learning.agent.tool.RagTool;
 import com.liwx.learning.agent.tool.TimeTool;
@@ -13,18 +14,13 @@ import com.liwx.learning.common.FileValidator;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.entity.ChatSession;
 import com.liwx.learning.rag.mapper.ChatSessionMapper;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.util.MimeType;
-
-import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -63,7 +59,7 @@ import java.util.concurrent.TimeUnit;
 public class AgentController {
 
     @Autowired
-    private ChatClient chatClient;
+    private AiClientService aiClientService;
 
     @Autowired
     private ChatSessionMapper chatSessionMapper;
@@ -86,22 +82,6 @@ public class AgentController {
     @Value("${rag.upload-dir:./uploads}")
     private String uploadDir;
 
-    // 提示词外部化：从 classpath:prompts/ 加载，和代码解耦，改 prompt 不用动 Java 文件
-    @Value("classpath:prompts/agent-system.st")
-    private Resource agentSystemPromptResource;
-    @Value("classpath:prompts/agent-image-system.st")
-    private Resource agentImageSystemPromptResource;
-
-    // 启动时加载提示词并缓存为 String，避免每次请求都读文件
-    private String agentSystemPrompt;
-    private String agentImageSystemPrompt;
-
-    @PostConstruct
-    void loadPrompts() throws java.io.IOException {
-        agentSystemPrompt = agentSystemPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        agentImageSystemPrompt = agentImageSystemPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-    }
-
     // 限流：Guava Cache 自动清理不活跃用户的 RateLimiter，避免内存泄漏
     private final Cache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
             .expireAfterAccess(1, TimeUnit.HOURS)
@@ -119,12 +99,12 @@ public class AgentController {
     public Flux<String> chat(@RequestParam String question, @RequestParam String sessionId) {
         final Long userId = StpUtil.getLoginIdAsLong();
 
-        // 限流
+        // 限流：每 10 秒最多 1 次
         if (!getRateLimiter(String.valueOf(userId)).tryAcquire()) {
-            return Flux.just("请求过于频繁，请稍后再试");
+            return Flux.just("请求过于频繁，请稍后再试", "[DONE]");
         }
 
-        // 会话管理
+        // 会话管理：新会话自动创建，老会话更新活跃时间
         ChatSession existingSession = chatSessionMapper.selectBySessionId(sessionId);
         if (existingSession == null) {
             String title = question.length() > 20 ? question.substring(0, 20) + "..." : question;
@@ -133,38 +113,18 @@ public class AgentController {
             chatSessionMapper.updateActiveTime(sessionId);
         }
 
-        log.info("Agent 收到请求：userId={}, question={}, sessionId={}", userId, question, sessionId);
+        log.info("Agent 收到对话：userId={}, question={}, sessionId={}", userId, question, sessionId);
 
-        // 使用启动时缓存的提示词（来自 prompts/agent-system.st）
-        String systemPrompt = agentSystemPrompt;
-
-        // 使用非流式调用：DashScope 兼容模式流式 + 工具调用有已知 bug（后续 chunk 的 id 返回空字符串，
-        // 导致 Spring AI 的 ChunkMerger 崩溃）。流式降级又会导致 ChatMemory 重复保存用户消息。
-        // 综合考虑，用非流式 .call() 一次性返回，前端 SSE 仍然正常工作。
-        try {
-            String response = buildPrompt(systemPrompt, question, sessionId, userId)
-                    .call()
-                    .content();
-            return toSseFlux(response);
-        } catch (Exception e) {
-            log.error("Agent 调用失败：{}", e.getMessage());
-            return Flux.just("请求处理失败，请重试", "[DONE]");
-        }
+        // 调用 AiClientService：@CircuitBreaker 保护，连续失败自动熔断降级
+        String response = aiClientService.chat(question, sessionId, userId);
+        return toSseFlux(response);
     }
 
     /**
-     * 图片对话（多模态）：用户上传图片 + 问题，模型直接"看"图片回答
-     *
-     * 多模态原理：
-     *   1. 图片转 base64 → 和文本一起发给通义 qwen-vl-plus 视觉模型
-     *   2. 模型不需要先 OCR 转文字，直接理解图片内容（端到端多模态）
-     *   3. 返回标准文本回答，前端 Markdown 渲染
-     *
-     * 存储方案：
-     *   图片存本地 → URL 存在消息文本的 markdown 语法中 → ChatMemory 只存文本（MediaStrippingChatMemory 剥离 base64）
-     *   历史记录加载时前端解析 markdown 图片语法显示缩略图
+     * Agent 图片对话（多模态）：支持图片 + 文本，模型同时理解图片和文字
+     * 用法：POST /agent/chatWithImage?question=这张图片是什么&sessionId=xxx（form-data, field=image）
      */
-    @PostMapping(value = "/chat-with-image", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/chatWithImage", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatWithImage(
             @RequestParam String question,
             @RequestParam String sessionId,
@@ -173,7 +133,7 @@ public class AgentController {
 
         // 限流
         if (!getRateLimiter(String.valueOf(userId)).tryAcquire()) {
-            return Flux.just("请求过于频繁，请稍后再试");
+            return Flux.just("请求过于频繁，请稍后再试", "[DONE]");
         }
 
         // 校验图片格式（png/jpg/jpeg/gif/webp，最大 10MB）
@@ -191,65 +151,29 @@ public class AgentController {
         log.info("Agent 收到图片对话：userId={}, question={}, sessionId={}, imageSize={}KB",
                 userId, question, sessionId, imageFile.getSize() / 1024);
 
-        try {
-            // 1. 保存图片到磁盘
-            String filename = UUID.randomUUID() + ext;
-            Path imageDir = Path.of(uploadDir, "chat-images").toAbsolutePath();
-            Files.createDirectories(imageDir);
-            Path dest = imageDir.resolve(filename);
-            imageFile.transferTo(dest.toFile());
-            String imageUrl = "/uploads/chat-images/" + filename;
+        // 1. 保存图片到磁盘
+        String filename = UUID.randomUUID() + ext;
+        Path imageDir = Path.of(uploadDir, "chat-images").toAbsolutePath();
+        Files.createDirectories(imageDir);
+        Path dest = imageDir.resolve(filename);
+        imageFile.transferTo(dest.toFile());
+        String imageUrl = "/uploads/chat-images/" + filename;
 
-            // 2. 构建消息文本：markdown 图片语法（前端渲染缩略图）+ 用户问题
-            String markdownText = "![图片](" + imageUrl + ")\n\n" + question;
+        // 2. 确定 MIME 类型
+        String contentType = switch (ext) {
+            case ".png" -> "image/png";
+            case ".jpg", ".jpeg" -> "image/jpeg";
+            case ".gif" -> "image/gif";
+            case ".webp" -> "image/webp";
+            default -> "image/png";
+        };
 
-            // 3. 确定 MIME 类型
-            String contentType = switch (ext) {
-                case ".png" -> "image/png";
-                case ".jpg", ".jpeg" -> "image/jpeg";
-                case ".gif" -> "image/gif";
-                case ".webp" -> "image/webp";
-                default -> "image/png";
-            };
-
-            // 4. 调用多模态模型（qwen-vl-plus）：图片转 base64 和文本一起发给模型
-            //    .options() 覆盖默认的 qwen-plus 为 qwen-vl-plus（视觉理解模型）
-            String systemPrompt = agentImageSystemPrompt;
-
-            String response = chatClient.prompt()
-                    .system(systemPrompt)
-                    .user(u -> u.text(markdownText).media(
-                            MimeType.valueOf(contentType),
-                            new FileSystemResource(dest)))
-                    .options(OpenAiChatOptions.builder().model("qwen-vl-plus"))
-                    .tools(ragTool, timeTool, weatherTool, userQueryTool, researchTool)
-                    .advisors(a -> {
-                        a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                        a.param(UserMemoryAdvisor.USER_ID, userId);
-                    })
-                    .call()
-                    .content();
-
-            return toSseFlux(response);
-        } catch (Exception e) {
-            log.error("图片对话调用失败：{}", e.getMessage());
-            return Flux.just("请求处理失败，请重试", "[DONE]");
-        }
-    }
-
-    /**
-     * 构建 ChatClient 请求（复用给流式和非流式）
-     */
-    private ChatClient.ChatClientRequestSpec buildPrompt(String systemPrompt, String question,
-                                                          String sessionId, Long userId) {
-        return chatClient.prompt()
-                .system(systemPrompt)
-                .user(question)
-                .tools(ragTool, timeTool, weatherTool, userQueryTool, researchTool)
-                .advisors(a -> {
-                    a.param(ChatMemory.CONVERSATION_ID, sessionId);
-                    a.param(UserMemoryAdvisor.USER_ID, userId);
-                });
+        // 3. 调用 AiClientService：@CircuitBreaker 保护，连续失败自动熔断降级
+        String response = aiClientService.chatWithImage(
+                question, sessionId, userId,
+                imageUrl, contentType,
+                new FileSystemResource(dest));
+        return toSseFlux(response);
     }
 
     /**
@@ -272,5 +196,4 @@ public class AgentController {
         lines.add("[DONE]");
         return Flux.fromIterable(lines);
     }
-
 }

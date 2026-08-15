@@ -157,3 +157,25 @@ mybatis:
   type-aliases-package: com.liwx.learning.user.entity,com.liwx.learning.rag.entity
   configuration:
     map-underscore-to-camel-case: true
+
+# Resilience4j 熔断器配置（替代 ResilienceConfig.java 的 Java 配置）
+# Spring Boot 自动读取这个配置，不需要再写 CircuitBreakerConfigCustomizer Bean
+resilience4j:
+
+
+  circuitbreaker:
+    instances:
+      researchCircuitBreaker:          # Python Agent 调研服务
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        recordExceptions:
+          - java.lang.Exception
+      llmCircuitBreaker:               # LLM 主调用（通义千问），AiClientService 使用
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        recordExceptions:
+          - java.lang.Exception

@@ -157,6 +157,18 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- Resilience4j 熔断器：防止外部服务故障级联拖垮整个应用 -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-core</artifactId>
+			<version>2.4.0</version>
+		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot4</artifactId>
+			<version>2.4.0</version>
+		</dependency>
+
 		<!-- Micrometer Tracing + OpenTelemetry：Spring AI 观测性的底层依赖 -->
 		<!-- Spring AI 的 ObservationAdvisor 用 Micrometer 记录 trace，OTLP 负责把 trace 发到 Langfuse -->
 		<dependency>
