@@ -8,7 +8,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 
 /**
- * Langfuse 可观测性配置
+ * Langfuse 可观测性配置：本类只是链路的"工厂环节"，完整链路——
+ *   yml 提供参数（key/url）→ 本类构建带鉴权头的 RestClient →
+ *   AiConfig 把它装进 LangfuseAdvisor → Advisor 每次调用后用它向 Langfuse 服务上报 trace。
+ * yml 管属性，本类管造对象（Basic Auth 头的拼接计算写不进 yml）；存储与展示在 Langfuse 服务端（PG 库）
  *
  * @ConditionalOnProperty：只有配置了 langfuse.enabled=true 时才创建这个 Bean
  * 没配 → Bean 不存在 → AiConfig 里 @Autowired(required=false) 拿到 null → 不注册 LangfuseAdvisor
