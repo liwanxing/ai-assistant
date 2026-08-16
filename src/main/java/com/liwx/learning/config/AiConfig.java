@@ -71,24 +71,13 @@ public class AiConfig {
                 .defaultAdvisors(
                         new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
-                        // 读取截断（存用分离）：存储窗口 500 条供回看，模型上下文只加载最近 30 条——
-                        // 在 Advisor 处包一层而不是包在 Bean 上，/messages 回看接口注入的是原始 Bean，拿全量
-                        // 30 = 摘要缓冲区：ConversationSummaryAdvisor 保留最近 20 条 + 10 条溢出压缩成摘要
-                        // 注：这里的 chatMemory 参数就是上面的 MediaStrippingChatMemory Bean——两层装饰器嵌套：
-                        // 外层（ReadLimit）截读取 30 条，内层（MediaStripping）写入时剥图片，各司其职互不替代
                         MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor(),  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
-                        // 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。放最内层（order=1000）——
-                        // 短路时只跳过 LLM 调用，外层的记忆读写/Token 监控照常执行；
-                        // 命中时无 Usage 元数据 → TokenUsage 不打 token 行（账本不重复计账，
-                        // 节省量 = 命中次数 × 同类问题首次调用的平均 token，是对比值非单次可读）
-                        new SemanticCacheAdvisor(semanticCacheStore)
+                        new SemanticCacheAdvisor(semanticCacheStore)// 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。
                 );
 
         // Langfuse 可观测性：@ConditionalOnProperty 控制 Bean 是否创建
-        // 没配 spring.ai.langfuse.enabled=true → Bean 不存在 → langfuseRestClient = null → 不注册
-        // 配了 → Bean 存在 → 注册 LangfuseAdvisor，追踪每次 ChatClient 调用
         if (langfuseRestClient != null) {
             builder.defaultAdvisors(new LangfuseAdvisor(langfuseRestClient));
             log.info("Langfuse 可观测性已启用");

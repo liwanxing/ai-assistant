@@ -108,6 +108,11 @@ public class SemanticCacheAdvisor implements CallAdvisor {
             if (text == null || text.isBlank()) {
                 return null;
             }
+            // 过短问题不缓存："它呢""然后呢""为什么"这类代词/省略式追问，答案完全依赖上文，
+            // 而缓存 key 只有 query 本身——自包含的知识型问题基本不会短于这个长度
+            if (text.length() < 8) {
+                return null;
+            }
             // 动态问题防护（见 SKIP_WORDS 注释）
             for (String word : SKIP_WORDS) {
                 if (text.contains(word)) {
