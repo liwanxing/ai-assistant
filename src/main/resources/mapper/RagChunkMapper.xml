@@ -28,6 +28,11 @@
         DELETE FROM rag_document_chunk WHERE document_id = #{documentId}
     </delete>
 
+    <!-- 幂等清理：按文档取全部 chunk_id（即 Milvus 主键），重跑前先删旧数据，保证重复消费结果一致 -->
+    <select id="selectChunkIdsByDocumentId" resultType="java.lang.String">
+        SELECT chunk_id FROM rag_document_chunk WHERE document_id = #{documentId}
+    </select>
+
     <!--
         按位置批量取分段（窗口扩容）：(document_id, chunk_index) 元组 IN 联合定位，
         一次取回所有命中的 chunk 及其相邻段——比逐段查快，也比单字段 IN 过滤精准

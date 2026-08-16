@@ -34,6 +34,12 @@ public interface RagChunkMapper {
     int deleteByDocumentId(@Param("documentId") Long documentId);
 
     /**
+     * 查文档全部分段 ID（chunk_id 即 Milvus 主键 doc{documentId}_{index}）
+     * 幂等清理用：MQ 至少一次投递可能重复消费，重跑前按此清单删 Milvus + MySQL 旧数据
+     */
+    List<String> selectChunkIdsByDocumentId(@Param("documentId") Long documentId);
+
+    /**
      * 按位置批量取分段（RagTool 窗口扩容用）：(document_id, chunk_index) 元组 IN，
      * 一条 SQL 取回所有相邻段，不逐段查询（防 N+1）。
      * positions 每项是含 documentId / chunkIndex 两个键的 Map

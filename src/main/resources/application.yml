@@ -124,6 +124,15 @@ management:
 amap:
   api-key: ${AMAP_API_KEY:amap-placeholder}
 
+# RocketMQ（rocketmq-spring-boot-starter 自动装配 RocketMQTemplate）
+# RAG 文档异步处理：上传接口发消息 → 消费端解析/切分/向量化入库
+# 本地没起 MQ 容器时应用照常启动（客户端只刷重连日志）；发消息失败会降级走 @Async
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
+  producer:
+    group: liwx-learning-producer    # 生产者组（事务消息回查按组名路由，普通消息仅作标识）
+    send-message-timeout: 5000       # 同步发送超时（毫秒）
+
 # RAG 文档上传配置
 rag:
   upload-dir: ./uploads  # 文件保存到项目根目录的 uploads 文件夹
@@ -146,6 +155,12 @@ rag:
   retry:
     max-attempts: 3       # 文档处理失败后的最大重试次数（含首次执行，3 = 最多试 3 次）
     delay-ms: 5000        # 重试间隔（毫秒），给 API 一点喘息时间避免连续打
+  # 文档异步处理通道：true 走 RocketMQ（可靠：磁盘持久化 + 消费重试 + 死信），
+  # false 或发送失败时降级为 @Async（内存任务，重启即丢，仅本地开发兜底）
+  mq:
+    enabled: ${RAG_MQ_ENABLED:true}
+    topic: rag-document-process       # 消息 Topic（broker.conf 开了 autoCreateTopicEnable，无需手动建）
+    consumer-group: rag-doc-group     # 消费者组：同一组内消息只被一个实例消费（集群模式）
   # 历史数据定时清理：超过保留期的会话四件套整删（消息+摘要+聊天图片+会话记录），不留孤儿
   # 触发在 HistoryCleanupTask（@Scheduled），逻辑在 SessionCleanupService
   cleanup:
@@ -191,7 +206,8 @@ knife4j:
 # MyBatis 配置
 mybatis:
   mapper-locations: classpath:mapper/*.xml
-  type-aliases-package: com.liwx.learning.user.entity,com.liwx.learning.rag.entity
+  # XML 里都写全限定名，这里只是别名兜底；ai.entity 是目录重组后新加的域
+  type-aliases-package: com.liwx.learning.user.entity,com.liwx.learning.rag.entity,com.liwx.learning.ai.entity
   configuration:
     map-underscore-to-camel-case: true
 

@@ -17,7 +17,7 @@
 # 相比 docker-compose.yml（本地开发），这里多了：
 #   - app 容器：Spring Boot 应用
 #   - frontend 容器：Nginx + Vue 静态文件
-#   - 容器间用服务名互相访问（app、mysql、redis、milvus-standalone），不用 localhost
+#   容器间用服务名互相访问（app、mysql、redis、milvus-standalone、rocketmq-broker），不用 localhost
 # ============================================================================
 
 services:
@@ -148,6 +148,59 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
+  # RocketMQ 5.x 消息队列（RAG 文档异步处理）
+  # 与 dev 版（docker-compose.yml）的差异只在 broker.conf：prod 挂 broker-prod.conf，
+  # brokerIP1=rocketmq-broker（服务名）——app 在容器网络里，注册 127.0.0.1 它连不上
+  # ==========================================================================
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-nameserver
+    command: sh mqnamesrv
+    # 以 root 跑：非 root 用户写不进 root 属主的命名卷（同 dev 版注释）
+    user: "0:0"
+    ports:
+      - "9876:9876"   # 暴露给宿主机仅为排障，生产可不暴露
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - rocketmq_namesrv_logs:/home/rocketmq/logs
+    restart: unless-stopped
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-broker
+    # -n 指定 NameServer 地址（容器网络内服务名）；-c 用 prod 专属配置（broker-prod.conf）
+    # 挂目录而非单文件：Windows Docker Desktop 的单文件 bind mount 可能读到 0 字节，目录挂载可靠
+    command: sh mqbroker -n rocketmq-nameserver:9876 -c /home/rocketmq/rmq-conf/broker-prod.conf
+    # 以 root 跑：非 root 用户写不进 root 属主的命名卷，启动即 NPE（同 dev 版注释）
+    user: "0:0"
+    ports:
+      - "10911:10911"   # 同上，仅为宿主机排障暴露（mqadmin/控制台验证用）
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./rmq/conf:/home/rocketmq/rmq-conf:ro
+      - rocketmq_broker_logs:/home/rocketmq/logs
+      - rocketmq_broker_store:/home/rocketmq/store
+    depends_on:
+      rocketmq-nameserver:
+        condition: service_started   # Broker 注册不上会自动重试
+    restart: unless-stopped
+
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: rocketmq-dashboard
+    ports:
+      - "8180:8080"
+    environment:
+      TZ: Asia/Shanghai
+      # -Dserver.port=8080：新版 dashboard 镜像默认监听 8082，钉回 8080 对齐端口映射 8180:8080
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=rocketmq-nameserver:9876 -Dserver.port=8080"
+    depends_on:
+      - rocketmq-nameserver
+    restart: unless-stopped
+
+  # ==========================================================================
   # Spring Boot 应用
   # ==========================================================================
   app:
@@ -170,6 +223,8 @@ services:
         condition: service_healthy
       milvus-standalone:
         condition: service_healthy   # 等 Milvus 真正就绪再启动，否则 RAG 初始化会失败
+      rocketmq-broker:
+        condition: service_started   # 只等启动不等就绪：Broker 完整注册要几秒，MQ 客户端连不上会自动重连
     environment:
       # 用 Docker 服务名替换 localhost（容器间通过 Docker 内部 DNS 互访）
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -181,6 +236,9 @@ services:
       # Milvus 连接：容器间用服务名 milvus-standalone，不用 localhost
       SPRING_AI_VECTORSTORE_MILVUS_HOST: milvus-standalone
       SPRING_AI_VECTORSTORE_MILVUS_PORT: "19530"
+      # RocketMQ 连接：容器间用服务名（命中 application.yml 里 rocketmq.name-server 的占位符
+      # ${ROCKETMQ_NAMESRV:localhost:9876}；本地 dev 应用跑宿主机，不设这个变量就走默认值）
+      ROCKETMQ_NAMESRV: rocketmq-nameserver:9876
       # 通义 DashScope API Key（部署时改成你自己的）
       AI_API_KEY: "sk-你的线上key"
       # 激活 prod profile：日志降到 INFO（logback-spring.xml 里的 prod 段才生效）
@@ -216,6 +274,7 @@ services:
 # 命名卷
 #   mysql_data / redis_data：数据库与缓存数据持久化
 #   milvus_data / etcd_data / minio_data：向量数据库及其依赖的数据持久化
+#   rocketmq_*_logs / rocketmq_broker_store：消息队列日志与消息存储持久化
 #   app_logs：应用日志持久化，容器重建后历史日志仍可查
 # ===========================================================================
 volumes:
@@ -224,4 +283,7 @@ volumes:
   milvus_data:
   etcd_data:
   minio_data:
+  rocketmq_namesrv_logs:
+  rocketmq_broker_logs:
+  rocketmq_broker_store:
   app_logs:

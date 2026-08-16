@@ -50,10 +50,21 @@ public class SemanticCacheStore {
         // 维度不用手动设：MilvusVectorStore 自动从 embeddingModel.dimensions() 推断（1024）
         MilvusServiceClient milvusClient = (MilvusServiceClient) vectorStore.getNativeClient()
                 .orElseThrow(() -> new IllegalStateException("主 VectorStore 未暴露 Milvus 原生客户端，无法创建语义缓存"));
-        this.cacheStore = MilvusVectorStore.builder(milvusClient, embeddingModel)
+        MilvusVectorStore store = MilvusVectorStore.builder(milvusClient, embeddingModel)
                 .collectionName("semantic_cache")
                 .initializeSchema(true)
                 .build();
+        // 手动 build 的实例不经 Spring 容器生命周期，initializeSchema 的建表逻辑挂在
+        // InitializingBean.afterPropertiesSet() 里、容器不会替我们调——不显式调一次，
+        // collection 就一直不存在（冷启动）：lookup/save 各自的 catch 能兕住，但
+        // invalidate/purgeExpired 先跑就会触发 Milvus SDK 打出吓人的 "collection not found" ERROR
+        try {
+            store.afterPropertiesSet();
+        } catch (Exception e) {
+            // 建表失败不阻断启动：缓存是加速手段，各调用点的 catch 已兕底，下次重启再试
+            log.warn("语义缓存 collection 初始化失败（缓存降级，重启后重试）：{}", e.getMessage());
+        }
+        this.cacheStore = store;
         this.enabled = enabled;
         this.similarityThreshold = similarityThreshold;
         this.ttlMs = ttlDays * 24L * 60 * 60 * 1000;
@@ -128,6 +139,12 @@ public class SemanticCacheStore {
             cacheStore.delete(INVALIDATE_FILTER);
             log.info("语义缓存已全量失效（知识库文档发生变更）");
         } catch (Exception e) {
+            if (isCollectionMissing(e)) {
+                // collection 不存在 = 一条缓存都没写过 = 缓存本来就是空的，“清空”目标天然达成。
+                // 冷启动场景（建表后还没写过任何缓存就上传/删除文档）会走到这
+                log.info("语义缓存 collection 尚不存在（从未写入过缓存），无需失效");
+                return;
+            }
             log.warn("语义缓存失效失败（残留旧答案将等 TTL 过期后由定时清理删除）：{}", e.getMessage());
         }
     }
@@ -145,8 +162,26 @@ public class SemanticCacheStore {
             cacheStore.delete(filter);
             log.info("语义缓存过期条目已物理清理（created_at 早于 {} 天前）", ttlMs / 24L / 60 / 60 / 1000);
         } catch (Exception e) {
+            if (isCollectionMissing(e)) {
+                // 同 invalidate：collection 不存在说明缓存为空，没有可清理的
+                log.info("语义缓存 collection 尚不存在（从未写入过缓存），无需清理");
+                return;
+            }
             // 清理失败不影响主流程，明天定时任务会重试
             log.warn("语义缓存物理清理失败（明天定时任务重试）：{}", e.getMessage());
         }
+    }
+
+    /**
+     * 判断异常链里是否是"collection 不存在"：Spring AI 会把 Milvus 的 ServerException 包一层再抛，
+     * 所以要沿 cause 链找；匹配文案是 Milvus 服务端的固定报错（collection not found）
+     */
+    private static boolean isCollectionMissing(Exception e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t.getMessage() != null && t.getMessage().contains("collection not found")) {
+                return true;
+            }
+        }
+        return false;
     }
 }

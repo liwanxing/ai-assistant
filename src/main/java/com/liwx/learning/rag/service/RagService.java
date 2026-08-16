@@ -24,9 +24,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * RAG 文档异步处理服务
- * 为什么用 @Async：
- * 文档解析 + 切分 + 向量化加起来可能要十几秒，改为异步后上传接口立即返回，后台处理完更新数据库状态。
+ * RAG 文档处理服务（MQ 消费端调用）
+ * 主路径：上传接口发 RocketMQ 消息 → DocumentProcessConsumer 调 processDocumentOnce；
+ *         失败异常上抛，由 Broker 自动重投（默认 16 次、间隔递增），耗尽进死信队列。
+ * 降级路径：MQ 关闭/发送失败时走 processDocumentAsync（@Async 内存任务，重启即丢，仅兕底）。
  * 注意：@Async 方法必须和调用者不在同一个类，否则 Spring 的 AOP 代理不生效
  */
 @Slf4j
@@ -72,28 +73,34 @@ public class RagService {
     }
 
     /**
-     * 异步处理文档：读取 → 切分 → 给 chunk 设置 ID → 向量化 → 存 Milvus → 更新状态
-     * chunk ID 格式：doc{documentId}_{index}
-     * 为什么要自定义 ID：Spring AI 默认给每个 chunk 生成随机 UUID，
-     * 和 MySQL 的 documentId 没有关联，删除文档时无法定位 Milvus 里的 chunk。
-     * 用 doc{documentId}_{index} 后，删除时可以精确构造 ID 列表批量删除。
+     * 【MQ 路径】单次处理文档：成功则落 SUCCESS 并失效语义缓存，失败直接抛异常上抛。
+     * 不在这里重试：消费失败由 Broker 自动重投（默认 16 次、间隔递增），
+     * 耗尽后消息进死信 Topic（%DLQ%消费者组，Dashboard 可查），文档状态停在 PROCESSING 等人工处置
      *
      * @param splitStrategy 切分策略：TOKEN / PARAGRAPH / SEMANTIC
      */
+    public void processDocumentOnce(Long documentId, String filePath, SplitStrategy splitStrategy) throws Exception {
+        log.info("开始处理文档, documentId={}, splitStrategy={}", documentId, splitStrategy);
+        int chunkCount = doProcessDocument(documentId, filePath, splitStrategy);
+        ragDocumentMapper.updateStatus(documentId, "SUCCESS", chunkCount, null);
+        // 知识库变了，基于旧知识库的缓存答案全部作废
+        semanticCacheStore.invalidate();
+        log.info("文档处理完成, documentId={}, chunks={}", documentId, chunkCount);
+    }
+
+    /**
+     * 【降级路径】@Async + 应用层重试：MQ 不可用 / 发送失败时由 Producer 兕底调用。
+     * 这套内存重试与 MQ 的消费重投是两套机制——这里补的是"任务丢了没人管"的下限，
+     * 可靠性上限（持久化 + 16 次重投 + 死信）在 MQ 那条路
+     */
     @Async
-    public void processDocument(Long documentId, String filePath, SplitStrategy splitStrategy) {
+    public void processDocumentAsync(Long documentId, String filePath, SplitStrategy splitStrategy) {
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                log.info("开始处理文档, documentId={}, attempt={}/{}, splitStrategy={}",
+                log.info("开始处理文档(降级@Async), documentId={}, attempt={}/{}, splitStrategy={}",
                         documentId, attempt, maxAttempts, splitStrategy);
 
-                int chunkCount = doProcessDocument(documentId, filePath, splitStrategy);
-
-                // 成功：更新状态，退出循环
-                ragDocumentMapper.updateStatus(documentId, "SUCCESS", chunkCount, null);
-                // 知识库变了，基于旧知识库的缓存答案全部作废
-                semanticCacheStore.invalidate();
-                log.info("文档处理完成, documentId={}, chunks={}", documentId, chunkCount);
+                processDocumentOnce(documentId, filePath, splitStrategy);
                 return;
 
             } catch (Exception e) {
@@ -120,12 +127,23 @@ public class RagService {
     }
 
     /**
-     * 实际的文档处理逻辑：读取 → 切分 → 设ID → 向量化 → 存 Milvus
+     * 实际的文档处理逻辑：幂等清理 → 读取 → 切分 → 设ID → 存 MySQL → 向量化存 Milvus
      *
      * @return 切分后的 chunk 数量
-     * @throws Exception 任何步骤失败都抛异常，由上层 processDocument 决定是否重试
+     * @throws Exception 任何步骤失败都抛异常，由上层（MQ 重投 / @Async 循环）决定是否重试
      */
     private int doProcessDocument(Long documentId, String filePath, SplitStrategy splitStrategy) throws Exception {
+        // 0. 幂等保护：MQ 是至少一次投递，消息可能重复消费；重试也会重跑本方法。
+        // 重跑前按 MySQL 的 chunk 清单把两库旧数据删干净，保证"处理 N 次 = 处理 1 次"。
+        // 为什么按 MySQL 查而不是按 chunkCount 构造：上次中断时 count 还是 0/NULL，
+        // 按 count 构造会漏删；MySQL 里实际落了哪些行，删起来才准
+        List<String> oldChunkIds = ragChunkMapper.selectChunkIdsByDocumentId(documentId);
+        if (!oldChunkIds.isEmpty()) {
+            vectorStore.delete(oldChunkIds);
+            ragChunkMapper.deleteByDocumentId(documentId);
+            log.info("幂等清理: documentId={}, 删除旧 chunk {} 条", documentId, oldChunkIds.size());
+        }
+
         // 1. Tika 读取文件内容（自动识别 PDF/Word/txt 格式）
         // 这是生产级方案：Tika 提取纯文本，格式信息（标题/字号）会丢失，但配合切分策略足以覆盖绝大多数场景。
         // 如果文档格式较差（扫描件或无段落结构），用户可在上传时选择「语义切分」来弥补，
@@ -143,6 +161,8 @@ public class RagService {
         }
 
         // 3. 给每个 chunk 设置自定义 ID（doc{documentId}_{index}）
+        // 为什么要自定义：Spring AI 默认生成随机 UUID，和 documentId 无关联，删除/幂等清理时
+        // 无法定位 Milvus 里的 chunk；用确定性 ID 后能精确构造清单批量删（deleteDocument、幂等清理都靠它）
         // Document 是不可变对象，没有 setId，只能用 builder 重新构建，把原文和元数据拷贝过去
         List<Document> namedChunks = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -155,15 +175,10 @@ public class RagService {
             namedChunks.add(named);
         }
 
-        // 4. 分批向量化并存入 Milvus（通义 API 每次最多 10 条，Spring AI 内部也会调 embedding）
-        int batchSize = 10;
-        for (int i = 0; i < namedChunks.size(); i += batchSize) {
-            int end = Math.min(i + batchSize, namedChunks.size());
-            vectorStore.add(namedChunks.subList(i, end));
-        }
-
-        // 5. 同时存 MySQL（带 FULLTEXT INDEX，供关键词检索用）
-        // 双写：Milvus 存向量做语义检索，MySQL 存原文做关键词检索
+        // 5. 先写 MySQL（带 FULLTEXT INDEX，供关键词检索用）
+        // 双写：MySQL 存原文做关键词检索，Milvus 存向量做语义检索。
+        // 顺序有意为之：中断只会产生"MySQL 有、Milvus 缺"——下次重跑的幂等清理能按 MySQL 清单删干净；
+        // 反过来会留下"MySQL 无、Milvus 有"的孤儿，幂等清理找不到它
         List<Map<String, Object>> chunkRows = new ArrayList<>();
         for (int i = 0; i < namedChunks.size(); i++) {
             Map<String, Object> row = new HashMap<>();
@@ -174,6 +189,13 @@ public class RagService {
             chunkRows.add(row);
         }
         ragChunkMapper.batchInsert(chunkRows);
+
+        // 6. 再分批向量化存入 Milvus（通义 API 每次最多 10 条，Spring AI 内部也会调 embedding）
+        int batchSize = 10;
+        for (int i = 0; i < namedChunks.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, namedChunks.size());
+            vectorStore.add(namedChunks.subList(i, end));
+        }
 
         return namedChunks.size();
     }
@@ -316,14 +338,12 @@ public class RagService {
         RagDocument doc = ragDocumentMapper.selectById(documentId);
         if (doc == null) return;
 
-        // 1. 删除 Milvus 中的向量（只有处理成功的文档才有向量）
-        if ("SUCCESS".equals(doc.getStatus()) && doc.getChunkCount() != null && doc.getChunkCount() > 0) {
-            List<String> ids = new ArrayList<>();
-            for (int i = 0; i < doc.getChunkCount(); i++) {
-                ids.add("doc" + documentId + "_" + i);
-            }
-            vectorStore.delete(ids);
-            log.info("已删除 Milvus 向量, documentId={}, chunks={}", documentId, ids.size());
+        // 1. 删除 Milvus 中的向量：按 MySQL 实际落库的 chunk_id 删（真实来源），
+        //    不按 chunkCount 构造——上次处理中断可能让两者不一致，按数构造会漏删
+        List<String> chunkIds = ragChunkMapper.selectChunkIdsByDocumentId(documentId);
+        if (!chunkIds.isEmpty()) {
+            vectorStore.delete(chunkIds);
+            log.info("已删除 Milvus 向量, documentId={}, chunks={}", documentId, chunkIds.size());
         }
 
         // 2. 删除本地文件

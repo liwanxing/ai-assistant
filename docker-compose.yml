@@ -1,20 +1,21 @@
 # ============================================================================
-# 本地开发环境配置：只启动 MySQL + Redis
+# 本地开发环境配置：MySQL + Redis + Milvus + RocketMQ
 # ----------------------------------------------------------------------------
 # 使用方式：
-#   docker compose up -d            启动 MySQL + Redis
+#   docker compose up -d            启动全部基础设施
+#   docker compose up -d mysql redis 只起其中几个（按需组合服务名）
 #   docker compose down             停止并删除容器（数据保留在命名卷里）
 #   docker compose down -v          停止并删除容器 + 清空数据卷（重置数据库）
 #
 # 设计思路（混合部署）：
-#   数据库 / 缓存  → Docker 容器（环境一致，不用本地装 MySQL/Redis）
-#   后端           → IDEA 里直接跑 LearningApplication（断点调试、实时日志）
-#   前端           → npm run dev（Vite 热更新，改代码自动刷新）
+#   数据库 / 缓存 / 向量库 / MQ → Docker 容器（环境一致，不用本地装）
+#   后端                         → IDEA 里直接跑 LearningApplication（断点调试、实时日志）
+#   前端                         → npm run dev（Vite 热更新，改代码自动刷新）
 #   这样既享受容器的环境隔离，又保留本地开发的调试体验。
 #
 # 与 docker-compose.prod.yml 的区别：
-#   - 这里只有 2 个服务，prod 有 4 个（多了 app 和 frontend）
-#   - 这里不跑 Spring Boot 容器，因为本地 IDEA 调试更方便
+#   - 这里只跑基础设施，后端/前端在本地起（调试方便）
+#   - prod 里多了 app 和 frontend 两个应用容器
 # ============================================================================
 
 services:
@@ -149,6 +150,70 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ==========================================================================
+  # RocketMQ 5.x 消息队列（RAG 文档异步处理：上传接口发消息，消费端解析/切分/入库）
+  # ==========================================================================
+  # 角色分工：NameServer = 路由注册中心（记着"哪个 Topic 在哪个 Broker"，很轻）
+  #           Broker     = 真正存消息、收发消息的（重，带磁盘持久化）
+  # 客户端（宿主机上的 Spring Boot）只连 NameServer(9876) 拿路由，再按路由直连 Broker(10911)
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-nameserver
+    command: sh mqnamesrv
+    # 镜像默认以非 root 用户(rocketmq/3000)跑，但命名卷初次创建时属主是 root，写不进去；
+    # 以 root 跑绕开（学习项目取舍）。非 root 方案：初始化卷属主
+    # docker compose run --rm --user root rocketmq-nameserver chown -R 3000:3000 /home/rocketmq/logs
+    user: "0:0"
+    ports:
+      - "9876:9876"   # NameServer 端口，宿主机应用连 localhost:9876
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - rocketmq_namesrv_logs:/home/rocketmq/logs
+    restart: unless-stopped
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-broker
+    # -n 指定 NameServer 地址（容器网络内用服务名）；-c 挂自定义配置
+    # broker.conf 里 brokerIP1=127.0.0.1 是关键：把注册到 NameServer 的地址
+    # 改成宿主机视角可达的 127.0.0.1，否则注册的是容器内网 IP，宿主机应用连不上
+    # 挂目录而非单文件：Windows Docker Desktop 的单文件 bind mount 可能读到 0 字节，目录挂载可靠（同 ./sql）
+    command: sh mqbroker -n rocketmq-nameserver:9876 -c /home/rocketmq/rmq-conf/broker.conf
+    # 以 root 跑：镜像默认用户(rocketmq/3000)写不进 root 属主的命名卷，
+    # 会启动即 NPE 退出（255 循环）——症状隐蔽：broker.log 也写不出来，stdout 只有裸 NPE。
+    # 非 root 方案：docker compose run --rm --user root rocketmq-broker \
+    #   sh -c 'chown -R 3000:3000 /home/rocketmq/store /home/rocketmq/logs'（down -v 后需重跑）
+    user: "0:0"
+    ports:
+      - "10909:10909"   # VIP 通道端口：客户端发送时可能优先走这个（11 = 主端口 - 2）
+      - "10911:10911"   # Broker 主端口：收发消息
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./rmq/conf:/home/rocketmq/rmq-conf:ro
+      - rocketmq_broker_logs:/home/rocketmq/logs
+      - rocketmq_broker_store:/home/rocketmq/store
+    depends_on:
+      rocketmq-nameserver:
+        condition: service_started   # 不等健康检查：Broker 注册不上会自动重试
+    restart: unless-stopped
+
+  # RocketMQ 控制台：看 Topic / 消息轨迹 / 消费进度 / 死信队列
+  # 宿主机访问 http://localhost:8180（8080 被后端占了，映射成 8180）
+  rocketmq-dashboard:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: rocketmq-dashboard
+    ports:
+      - "8180:8080"
+    environment:
+      TZ: Asia/Shanghai
+      # -Dserver.port=8080：新版 dashboard 镜像默认监听 8082，钉回 8080 对齐端口映射 8180:8080
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=rocketmq-nameserver:9876 -Dserver.port=8080"
+    depends_on:
+      - rocketmq-nameserver
+    restart: unless-stopped
+
 # ===========================================================================
 # 命名卷：由 Docker 管理，存在 Docker 默认数据目录里
 #   - docker compose down       → 容器删除，卷保留（数据还在）
@@ -160,3 +225,6 @@ volumes:
   milvus_data:
   etcd_data:
   minio_data:
+  rocketmq_namesrv_logs:
+  rocketmq_broker_logs:
+  rocketmq_broker_store:
