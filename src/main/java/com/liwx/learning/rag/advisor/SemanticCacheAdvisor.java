@@ -23,10 +23,10 @@ import java.util.List;
  *   再问"请假流程是什么" → 语义相似度 0.97 > 0.95 → 直接返回缓存答案（毫秒级，0 token）
  *
  * 链路位置（ getOrder 最大 = 最内层，紧贴 LLM）：
- *   TokenUsage → UserMemory → ChatMemory → Summary → Logger → 【本 Advisor】 → LLM
+ *   UserMemory → ChatMemory → Summary → Logger → 【本 Advisor】 → LLM
  *   为什么放最内层：命中短路时只跳过 LLM 调用本身——
- *   TokenUsageAdvisor 照常记录（token=0，量化缓存省了多少）、
- *   MessageChatMemoryAdvisor 照常把问答写入对话历史（否则命中后这句话在多轮里凭空消失）
+ *   MessageChatMemoryAdvisor 照常把问答写入对话历史（否则命中后这句话在多轮里凭空消失）、
+ *   外层 LangfuseAdvisor 照常执行（token 账本不重复计，见下方命中分支注释）
  *
  * 只实现 CallAdvisor 不实现 StreamAdvisor：
  *   主链路是 .call() + Controller 层 toSseFlux 假流（DashScope 流式工具调用 bug 的绕行方案），
@@ -63,8 +63,8 @@ public class SemanticCacheAdvisor implements CallAdvisor {
         String cachedAnswer = cacheStore.lookup(question);
         if (cachedAnswer != null) {
             // 短路：不调 chain.nextCall，LLM 完全不执行，本次 token 消耗 = 0。
-            // 响应里没有 Usage 元数据 → 外层 TokenUsageAdvisor 不会打 token 行，账本干净：
-            // 日志里“语义缓存命中”与“Token 用量”行互斥，统计不会重复计账。
+            // 响应里没有 Usage 元数据 → 外层 LangfuseAdvisor 不会上报 generation 事件也不打 token 行，
+            // 账本干净：日志里“语义缓存命中”与“Token 用量”行互斥，统计不会重复计账。
             // 节省量是对比值：命中次数 × 同类问题不走缓存时的平均消耗（看首次调用的 Token 日志）
             log.info("语义缓存命中，跳过 LLM 调用：{}", question);
             ChatResponse chatResponse = new ChatResponse(List.of(

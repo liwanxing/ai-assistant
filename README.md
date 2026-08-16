@@ -74,7 +74,7 @@
 2. **记忆存用分离（装饰器模式）**：`MessageWindowChatMemory` 默认把"存多少"和"模型看多少"绑死（30 条物理删除，历史回看断裂）。用 `ReadLimitChatMemory` 装饰 `get()` 只截读取，存储放开到 500——摘要压缩逻辑零改动，回看接口不受影响
 3. **一个内核两壳暴露**：RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（`@McpTool`，对外 MCP 协议）共用同一检索内核——对内不绕协议回环，对外标准互通
 4. **工具动态筛选（RAG of tools）**：全量注册时每个工具的 name + description + 参数 Schema 都随请求发给模型——token 线性膨胀，候选越多选得越不准。`ToolRegistryService` 三层漏斗：常驻万金油（漏召回兜底）→ `@ToolPermission` 权限过滤（模型调工具绕过接口层，候选池必须再挡一道）→ 向量 top-3 预筛（一次 embedding 的成本换掉无关工具 token）；MCP 远程工具同样收编；Milvus 挂了降级为权限内全量——筛选是优化不是功能
-5. **语义缓存四重防护**：过短问题跳过（代词/省略式追问依赖上文，缓存 key 只有 query 本身）、敏感词表跳过动态问题（“现在几点”缓存必出错）、多模态消息跳过、TTL + 文档变更主动失效；Advisor 放最内层——命中短路时记忆读写和 Token 监控照常执行，账本不重复计账
+5. **语义缓存四重防护**：过短问题跳过（代词/省略式追问依赖上文，缓存 key 只有 query 本身）、敏感词表跳过动态问题（“现在几点”缓存必出错）、多模态消息跳过、TTL + 文档变更主动失效；Advisor 放最内层——命中短路时记忆读写照常，Langfuse 拿不到 Usage 不会记 token 账，账本不重复计
 6. **多路检索并行化 + RRF 融合**：`CompletableFuture.allOf` 协调 4 路变体检索，单路失败降级空结果不拖全局；固定小线程池 + `CallerRunsPolicy` 天然背压。合并用 RRF（排名倒数求和）替代“先到优先”：向量分和全文分不可比，排名才是公共语言，多路都命中的 chunk 天然高分；融合分同时是 Rerank 前粗筛的砍量依据（按条数计费的精排先砍量）
 7. **检索后处理两件套（small-to-big + CombMNZ 复评）**：窗口扩容——chunk ID 自带 doc{docId}_{index} 位置，命中的 top-3 用一条元组 IN 反查相邻段拼成完整上下文，防“答案正好卡在切分边界”；拼接后重打一轮分（CombMNZ 思想）：span 同时命中向量和倒排两路给加成，“语义像”+“字面像”双重佐证；置信度门控放在最后——拿到模型真正要看的最终资料再拒答/放行
 8. **幂等删除 + 锚定重试**：清理会话时"会话记录"最后删——中途失败，下轮任务能重新扫到重删（每步幂等）；整批失败则止损退出，防 while 死循环
@@ -92,7 +92,7 @@
 ┌───────────────────────────┴───────────────────────────────────┐
 │                 后端（Spring Boot 4 + Spring AI 2.0）           │
 │                                                                │
-│  请求流：Advisor 链（Token 监控 → 长期记忆 → 短期记忆[读取截断]  │
+│  请求流：Advisor 链（长期记忆 → 短期记忆[读取截断]                │
 │          → 滚动摘要 → 语义缓存[命中短路] → LLM）                 │
 │                                                                │
 │  ┌──────────────── Agent 工具（Function Calling）────────────┐ │
@@ -200,7 +200,7 @@ Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即�
 | 数据库 | MySQL 8.0 + Milvus 2.4 + Redis 7 |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j 熔断 + Guava 用户级限流 |
-| 可观测性 | Langfuse 全链路追踪 + Token 用量监控 |
+| 可观测性 | Langfuse 全链路追踪（含 Token 用量，本地控制台同步一行） |
 | 前端 | Vue 3 + Element Plus + SSE 流式 |
 | 部署 | Docker + Docker Compose |
 

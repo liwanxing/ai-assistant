@@ -2,7 +2,6 @@ package com.liwx.learning.config;
 
 import com.liwx.learning.rag.advisor.ConversationSummaryAdvisor;
 import com.liwx.learning.rag.advisor.SemanticCacheAdvisor;
-import com.liwx.learning.rag.advisor.TokenUsageAdvisor;
 import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
 import com.liwx.learning.rag.service.ConversationSummaryService;
 import com.liwx.learning.rag.service.SemanticCacheStore;
@@ -69,7 +68,6 @@ public class AiConfig {
                                 @Autowired(required = false) RestClient langfuseRestClient) {
         ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
-                        new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）

@@ -86,7 +86,11 @@ public class LangfuseAdvisor implements CallAdvisor, StreamAdvisor {
             genEvent.put("body", genBody);
             batch.add(genEvent);
 
-            log.info("Langfuse trace: model={}, tokens={}", modelName, usage.getTotalTokens());
+            // 本地同步打一行（控制台一眼可见，信息量同原 TokenUsageAdvisor）：
+            // 明细、趋势、按用户聚合去 Langfuse 页面看，本地日志只管“刚才那次用了多少”
+            log.info("Token 用量 | userId={} sessionId={} model={} 输入={} 输出={} 总计={}",
+                    userId, sessionId, modelName,
+                    usage.getPromptTokens(), usage.getCompletionTokens(), usage.getTotalTokens());
         }
 
         // Send batch

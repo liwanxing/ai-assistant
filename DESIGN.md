@@ -315,7 +315,7 @@ RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（
 
 **为什么 Advisor 放最内层？**
 
-命中短路时，记忆读写和 Token 监控照常执行——缓存透明，账本不重复计账。
+命中短路时，记忆读写照常执行，Langfuse 也拿不到 Usage 不会记 token 账——缓存透明，账本不重复计账。
 
 ---
 
