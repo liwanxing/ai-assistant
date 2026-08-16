@@ -58,7 +58,7 @@
 
 ### 知识库管理
 
-文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分（TOKEN/FIXED/SEMANTIC 三策略）→ 向量化入 Milvus，异步处理 + 状态轮询 + 失败重试；删除时同步清 Milvus 向量 + 本地文件 + 记录，并主动失效语义缓存。
+文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分（TOKEN/PARAGRAPH/SEMANTIC 三策略）→ 向量化入 Milvus。异步链路走 RocketMQ：上传秒回，消费端处理，失败自动重投、耗尽进死信，幂等消费防重复（MQ 不可用自动降级 @Async）；删除时同步清 Milvus 向量 + 本地文件 + 记录，并主动失效语义缓存。
 
 ![知识库管理](docs/images/rag-docs.png)
 
@@ -106,14 +106,20 @@
 │  │ search_knowledge_base         │  │ 定时清理 180 天会话     │  │
 │  │ Claude Desktop/Cursor 可接入  │  │ 四件套幂等删除          │  │
 │  └───────────────────────────────┘  └────────────────────────┘  │
+│                                                                │
+│  ┌── 文档异步处理（RocketMQ）─────────────────────────────┐  │
+│  │ 上传 → 消息(持久化) → 消费端切分/向量化/双写入库         │  │
+│  │ 失败重投 + 死信兕底；幂等清理防重复；MQ 挂降级 @Async    │  │
+│  └──────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
         │                │                │               │
    ┌────┴────┐     ┌─────┴────┐     ┌─────┴─────┐   ┌────┴─────┐
    │ MySQL   │     │ Milvus   │     │ Redis     │   │ Python   │
    │ 业务+记忆│     │ 向量+缓存│     │ Sa-Token  │   │ Agent    │
    └─────────┘     └──────────┘     └───────────┘   └──────────┘
-                                        │
-                                  Langfuse（LLM 可观测）
+                                              │            │
+                                        Langfuse      RocketMQ
+                                     （LLM 可观测）（文档异步处理）
 ```
 
 ## 后端模块结构
@@ -158,7 +164,7 @@ amap:
 docker compose up -d
 ```
 
-启动 MySQL + Redis + Milvus 三件套。
+启动 MySQL + Redis + Milvus + RocketMQ 全套基础设施（RocketMQ 控制台：http://localhost:8180）。
 
 ### 3. 启动后端
 
@@ -212,6 +218,7 @@ Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即�
 | AI 能力 | Function Calling + RAG 七段链 + Advisor 链 + 三层记忆 |
 | 互操作 | MCP Client + MCP Server（Streamable HTTP） |
 | 数据库 | MySQL 8.0 + Milvus 2.4 + Redis 7 |
+| 消息队列 | RocketMQ 5.x（文档异步处理：持久化/重投/死信/幂等消费） |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j 熔断 + Guava 用户级限流 |
 | 可观测性 | Langfuse 全链路追踪（含 Token 用量，本地控制台同步一行） |

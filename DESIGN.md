@@ -352,6 +352,41 @@ CI（GitHub Actions）：push/PR 触发，后端 `mvnw verify`（surefire 排除
 
 ---
 
+## 19. 文档异步处理：从 @Async 到 RocketMQ
+
+**Q：文档上传后的异步处理为什么从 @Async 换成 RocketMQ？**
+
+@Async 是内存任务，单机玩玩够用，可靠性场景三个硬伤藏不住：
+
+| 能力 | @Async（内存线程池） | RocketMQ |
+|---|---|---|
+| 重启 | 任务直接丢，文档永远停在 PROCESSING | 消息持久化在 Broker，重启后继续消费 |
+| 重试 | 自己写循环 + Thread.sleep（占着线程睡） | Broker 自动重投：默认 16 次，间隔递增 |
+| 彻底失败 | 标记 FAILED 就完了，没有事后追查的抓手 | 进死信 Topic（%DLQ%消费者组），Dashboard 可查可重发 |
+
+链路：上传接口只做三件事（存文件 → 插表 PROCESSING → 发消息），秒回；消费端解析、切分、向量化、双写入库。上传与处理从此解耦——处理慢或挂了不影响上传。
+
+**Q：MQ 挂了上传接口会不会跟着挂？**
+
+不会，两级降级兕底：
+1. `rag.mq.enabled=false`（配置开关）：本地没起 MQ 容器时直接走 @Async 旧路径
+2. syncSend 抛异常（MQ 挂 / 发送超时）：当场降级 @Async，本次上传照常成功
+
+用 syncSend 而非 asyncSend：消息小、接口本就秒回，同步等 Broker ACK 换"发送确认"值得——fire-and-forget 丢了都不知道。降级有损（丢掉 MQ 的可靠性上限），所以只在失败那一刻用，日志里能看出来。
+
+**Q：消息重复消费怎么办（幂等）？**
+
+MQ 是至少一次（at-least-once）投递：消费成功但 ACK 失败、生产者重发，都会造成重复。解法在消费端幂等——doProcessDocument 第 0 步先做幂等清理：按 MySQL 的 chunk 清单把两库旧数据删干净再写，"处理 N 次 = 处理 1 次"。
+
+配套一个容易忽略的细节——双写顺序必须先 MySQL 后 Milvus：中断只会产生"MySQL 有、Milvus 缺"，下次重跑的幂等清理按 MySQL 清单删得干净；反过来会留下"MySQL 无、Milvus 有"的孤儿，清理根本找不到它。为什么按 MySQL 查而不是按 chunkCount 构造 ID：上次中断时 count 还是 0，按数构造会漏删；MySQL 里实际落了哪些行，删起来才准。
+
+**Q：踩过什么坑？**
+
+1. **brokerIP1**：Broker 注册到 NameServer 的默认地址是容器内网 IP（172.x），宿主机应用拿到路由也连不上。broker.conf 里 `brokerIP1=127.0.0.1`，配合 compose 端口映射，宿主机连 localhost:10911 才通——Docker 跑 RocketMQ 的第一大坑（同款问题：Kafka 的 advertised.listeners、ES 的 network.publish_host）
+2. **onMessage 不能抛受检异常**：RocketMQListener.onMessage 签名不带 throws，processDocumentOnce 的受检异常只能 catch 后包成 RuntimeException 上抛。注意这不是"吞异常"——wrap 后照样逃逸出方法，Broker 照样重投；真正要防的是 catch 完不上抛，那等于告诉 MQ"消费成功"，重投机制就废了
+
+---
+
 ## 技术栈速查
 
 | 分类 | 技术 |
@@ -362,6 +397,7 @@ CI（GitHub Actions）：push/PR 触发，后端 `mvnw verify`（surefire 排除
 | 向量数据库 | Milvus 2.4 |
 | 关系数据库 | MySQL 8.0 |
 | 缓存/会话 | Redis 7 |
+| 消息队列 | RocketMQ 5.x（文档异步处理） |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j（熔断） + Guava RateLimiter（限流） |
 | 可观测性 | Langfuse |

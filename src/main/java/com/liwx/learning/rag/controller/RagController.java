@@ -10,6 +10,7 @@ import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
+import com.liwx.learning.rag.mq.DocumentProcessProducer;
 import com.liwx.learning.ai.service.SessionCleanupService;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +43,7 @@ import java.util.regex.Pattern;
 public class RagController {
 
     private final RagService ragService;
+    private final DocumentProcessProducer documentProcessProducer;
     private final ChatMemory chatMemory;
     private final ChatSessionMapper chatSessionMapper;
     private final RagDocumentMapper ragDocumentMapper;
@@ -50,9 +52,11 @@ public class RagController {
     @Value("${rag.upload-dir}")
     private String uploadDir;
 
-    public RagController(RagService ragService, ChatMemory chatMemory, ChatSessionMapper chatSessionMapper,
-                         RagDocumentMapper ragDocumentMapper, SessionCleanupService sessionCleanupService) {
+    public RagController(RagService ragService, DocumentProcessProducer documentProcessProducer, ChatMemory chatMemory,
+                         ChatSessionMapper chatSessionMapper, RagDocumentMapper ragDocumentMapper,
+                         SessionCleanupService sessionCleanupService) {
         this.ragService = ragService;
+        this.documentProcessProducer = documentProcessProducer;
         this.chatMemory = chatMemory;
         this.chatSessionMapper = chatSessionMapper;
         this.ragDocumentMapper = ragDocumentMapper;
@@ -63,7 +67,8 @@ public class RagController {
      * 文档上传（异步）：
      * 1. 保存文件到本地
      * 2. 插表(PROCESSING)
-     * 3. 异步切分+向量化
+     * 3. 发 MQ 消息，消费端异步处理（Tika 读取 → 切分 → 向量化 → 双写入库）；
+     *    MQ 不可用自动降级 @Async，上传接口不因 MQ 故障而失败
      * 4. 立即返回
      */
     @PostMapping("/upload")
@@ -90,8 +95,8 @@ public class RagController {
         doc.setStatus("PROCESSING");
         ragDocumentMapper.insert(doc);
 
-        // 3. 异步处理：Tika 读取 → 切分 → 向量化 → 存 Milvus（不阻塞当前请求）
-        ragService.processDocument(doc.getId(), dest.toString(), splitStrategy);
+        // 3. 发 MQ 消息触发异步处理（消息持久化在 Broker，消费失败自动重投，兕底死信）
+        documentProcessProducer.send(doc.getId(), dest.toString(), splitStrategy);
 
         // 4. 立即返回，不等处理完
         return Result.success(Map.of("documentId", doc.getId(), "status", "PROCESSING"));
