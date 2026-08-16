@@ -254,6 +254,8 @@ Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 
 
 开发环境不需要启动 Langfuse 服务，也不需要配 API Key，不影响项目启动。
 
+![Langfuse 观测面板](docs/images/langfuse-eval.png)
+
 ---
 
 ## 14. Docker 部署
