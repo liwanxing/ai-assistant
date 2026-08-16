@@ -15,8 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Map;
 
 /**
- * 深度调研工具（Python Agent）
- *
  * 通过 HTTP 调用 Python LangGraph Agent 的 /research 接口，做多步骤深度调研。
  *
  * 熔断保护（Resilience4j）：
@@ -32,15 +30,21 @@ public class ResearchTool {
     private final RestClient restClient;
 
     /**
-     * 复用全局连接池，但设置 5 分钟读超时（深度调研耗时长）
+     * 为什么不用 MCP：
+     * graph-learning-java（已经通过 MCP Client 调用）,这里专门不用作为学习体验差异，如果不用mcp需要自己写连接池（mcp会自带）提高性能
+     *
      */
-    public ResearchTool(PoolingHttpClientConnectionManager connectionManager,
-                        @Value("${research.service-url:http://localhost:8000}") String serviceUrl) {
+    public ResearchTool(@Value("${research.service-url:http://localhost:8000}") String serviceUrl) {
+        //独立连接池：调研请求单次耗时可达 5 分钟，如果复用全局连接池，可能导致其他服务拿不到连接。
+        PoolingHttpClientConnectionManager pool = new PoolingHttpClientConnectionManager();
+        pool.setMaxTotal(10);
+        pool.setDefaultMaxPerRoute(5);
+
         this.restClient = RestClient.builder()
                 .baseUrl(serviceUrl)
                 .requestFactory(new HttpComponentsClientHttpRequestFactory(
                         HttpClients.custom()
-                                .setConnectionManager(connectionManager)
+                                .setConnectionManager(pool)
                                 .setDefaultRequestConfig(org.apache.hc.client5.http.config.RequestConfig.custom()
                                         .setConnectTimeout(Timeout.ofSeconds(5))
                                         .setResponseTimeout(Timeout.ofMinutes(5))

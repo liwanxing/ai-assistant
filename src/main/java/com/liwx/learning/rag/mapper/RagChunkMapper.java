@@ -32,4 +32,11 @@ public interface RagChunkMapper {
      * 按文档ID删除全部分段
      */
     int deleteByDocumentId(@Param("documentId") Long documentId);
+
+    /**
+     * 按位置批量取分段（RagTool 窗口扩容用）：(document_id, chunk_index) 元组 IN，
+     * 一条 SQL 取回所有相邻段，不逐段查询（防 N+1）。
+     * positions 每项是含 documentId / chunkIndex 两个键的 Map
+     */
+    List<Map<String, Object>> selectByPositions(@Param("positions") List<Map<String, Object>> positions);
 }
