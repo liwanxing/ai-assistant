@@ -39,7 +39,6 @@ public class LangfuseAdvisor implements CallAdvisor, StreamAdvisor {
         ChatClientResponse response = chain.nextCall(request);
 
         List<Map<String, Object>> batch = new ArrayList<>();
-
         // 1. Trace
         Map<String, Object> traceBody = new HashMap<>();
         traceBody.put("id", traceId);
@@ -91,15 +90,7 @@ public class LangfuseAdvisor implements CallAdvisor, StreamAdvisor {
         }
 
         // Send batch
-        Map<String, Object> batchPayload = new HashMap<>();
-        batchPayload.put("batch", batch);
-        try {
-            restClient.post().uri("/api/public/ingestion")
-                    .body(objectMapper.writeValueAsString(batchPayload))
-                    .retrieve().toBodilessEntity();
-        } catch (Exception e) {
-            log.warn("Langfuse batch send failed: {}", e.getMessage());
-        }
+        sendAsync(batch, "chat");
 
         return response;
     }
@@ -128,17 +119,28 @@ public class LangfuseAdvisor implements CallAdvisor, StreamAdvisor {
         traceEvent.put("body", traceBody);
         batch.add(traceEvent);
 
-        Map<String, Object> batchPayload = new HashMap<>();
-        batchPayload.put("batch", batch);
-        try {
-            restClient.post().uri("/api/public/ingestion")
-                    .body(objectMapper.writeValueAsString(batchPayload))
-                    .retrieve().toBodilessEntity();
-        } catch (Exception e) {
-            log.warn("Langfuse batch send failed: {}", e.getMessage());
-        }
+        sendAsync(batch, "stream");
 
         return chain.nextStream(request);
+    }
+
+    /**
+     * 异步上报：观测数据不能拖慢用户响应——LLM 调用完在主线程拼好事件，
+     * HTTP 发送交给虚拟线程后台执行（与 SemanticCacheStore.saveAsync 同一手法），
+     * Langfuse 挂了/慢了也只是丢观测不伤主链路
+     */
+    private void sendAsync(List<Map<String, Object>> batch, String source) {
+        Thread.ofVirtual().name("langfuse-reporter").start(() -> {
+            try {
+                Map<String, Object> batchPayload = new HashMap<>();
+                batchPayload.put("batch", batch);
+                restClient.post().uri("/api/public/ingestion")
+                        .body(objectMapper.writeValueAsString(batchPayload))
+                        .retrieve().toBodilessEntity();
+            } catch (Exception e) {
+                log.warn("Langfuse batch send failed ({}): {}", source, e.getMessage());
+            }
+        });
     }
 
     private String getUserText(ChatClientRequest request) {
