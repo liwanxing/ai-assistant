@@ -81,7 +81,7 @@ Sentinel 是阿里开源的流量治理平台，自带 Dashboard 控制台，适
 
 **Q：Agent 是怎么实现的？**
 
-用 Spring AI 的 Function Calling 机制。注册 5 个本地工具（RagTool、TimeTool、WeatherTool、UserQueryTool、ResearchTool）+ 1 个 MCP 动态发现工具（graph-analysis，开关可关），模型根据用户问题自主决定调哪个工具，不需要手写路由逻辑。
+用 Spring AI 的 Function Calling 机制。工具池：5 个本地工具（RagTool、TimeTool、WeatherTool、UserQueryTool、ResearchTool）+ MCP 动态发现工具（graph-analysis，开关可关），按请求动态筛选后注册（见下节），模型根据用户问题自主决定调哪个工具，不需要手写路由逻辑。
 
 问"请假怎么请" → 模型调 RagTool（查知识库）
 问"北京天气" → 模型调 WeatherTool（调高德 API）
@@ -93,7 +93,29 @@ Spring AI 封装了 Tool 定义的 JSON Schema 生成、Tool Call 结果的序�
 
 ---
 
-## 5. RAG 知识库（五段式质量链路）
+## 5. 工具动态筛选（三层漏斗）
+
+**Q：工具是怎么注册给模型的？**
+
+不是全量注册，而是每次请求动态筛选。全量注册时每个工具的 name + description + 参数 Schema 都随请求发给模型——工具一多，token 固定开销线性膨胀，且候选越多模型选得越不准（误选/犹豫/绕开工具硬答）。
+
+ToolRegistryService 三层漏斗逐层收敛：
+
+| 层 | 规则 | 为什么要单独一层 |
+|---|------|----------------|
+| ① 常驻 | TimeTool 这类万金油不走检索，永远注册 | 向量召回靠语义相似，“现在几点”和“时间工具描述”未必对得上，漏召回有它兜底 |
+| ② 权限 | `@ToolPermission` 标注的工具（如 UserQueryTool 挂 user:list），无权限码直接排除出候选池 | 权限是安全约束不是相关性问题；模型调工具绕过接口层，`@SaCheckPermission` 拦不住，候选池必须再挡一道 |
+| ③ 向量预筛 | query 与工具描述算相似度，top-3 召回（RAG of tools） | 向量负责召回（全量→K 个），function calling 负责精选（K 个→调哪个）；预筛成本仅一次 embedding |
+
+**索引与本体分离：** Milvus 里只存“目录”（工具名 + 描述 + 权限码），工具实现还是 Spring 容器里的 Bean，两边靠工具名关联。加新工具 = 写工具类 + 登记一行，启动时自动重建索引（描述改了重启即生效，不留脏数据）。
+
+**MCP 远程工具也收编这条路：** MCP 工具到本地同样是 ToolCallback，包上熔断后进同一套索引与筛选（AiConfig 不再 builder 级全量注册）。远程调用成本比本地高，更有理由按需带。
+
+**降级：** Milvus 不可用时退回“常驻 + 权限内全量注册”——筛选是优化不是功能，挂了最多多花点 token，不能让 Agent 没工具可用。
+
+---
+
+## 6. RAG 知识库（五段式质量链路）
 
 **Q：RAG 是怎么做的？**
 
@@ -126,7 +148,7 @@ Rerank 分数不是概率是相对值。阈值宁低勿高（0.3 起步）——
 
 ---
 
-## 6. 三层记忆系统
+## 7. 三层记忆系统
 
 **Q：记忆系统怎么设计的？**
 
@@ -160,7 +182,7 @@ MessageWindowChatMemory 默认把"存多少"和"模型看多少"绑死：maxMess
 
 ---
 
-## 7. AOP 日志切面
+## 8. AOP 日志切面
 
 **Q：怎么做接口日志的？**
 
@@ -170,7 +192,7 @@ MessageWindowChatMemory 默认把"存多少"和"模型看多少"绑死：maxMess
 
 ---
 
-## 8. RestClient 连接池
+## 9. RestClient 连接池
 
 **Q：外部 HTTP 调用怎么做性能优化的？**
 
@@ -186,7 +208,7 @@ MessageWindowChatMemory 默认把"存多少"和"模型看多少"绑死：maxMess
 
 ---
 
-## 9. 用户级限流
+## 10. 用户级限流
 
 **Q：怎么做限流的？**
 
@@ -196,7 +218,7 @@ Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 �
 
 ---
 
-## 10. SSE 流式对话
+## 11. SSE 流式对话
 
 **Q：流式输出怎么做的？**
 
@@ -210,7 +232,7 @@ Guava `RateLimiter`，每个用户一个限流器，QPS 上限 0.167（即 10 �
 
 ---
 
-## 11. 跨语言 Agent 协作
+## 12. 跨语言 Agent 协作
 
 **Q：Java 项目怎么和 Python Agent 协作？**
 
@@ -220,7 +242,7 @@ HTTP 调用，统一 `POST /接口名 + {"query": "..."}` 格式。Java 项目�
 
 ---
 
-## 12. Langfuse 可观测性
+## 13. Langfuse 可观测性
 
 **Q：怎么做 AI 调用的监控？**
 
@@ -234,7 +256,7 @@ Langfuse（开源 LLM 可观测性平台），通过自定义 Advisor 在每次 
 
 ---
 
-## 13. Docker 部署
+## 14. Docker 部署
 
 **Q：怎么部署的？**
 
@@ -244,13 +266,13 @@ Milvus 部署需要三件套（milvus-standalone + etcd + minio），Docker Comp
 
 ---
 
-## 14. MCP 双向互通
+## 15. MCP 双向互通
 
 **Q：MCP 用在哪？**
 
 一个项目同时扮演两种角色：
 
-- **MCP Client**：消费另一个 Java 项目（graph-learning-java）暴露的经营分析工具，动态发现，`MCP_ENABLED` 开关可关——远程服务挂了不影响主链路
+- **MCP Client**：消费另一个 Java 项目（graph-learning-java）暴露的经营分析工具，动态发现，`MCP_ENABLED` 开关可关——远程服务挂了不影响主链路；远程工具同样走三层筛选（§5），不再每请求全量带
 - **MCP Server**：把 RAG 知识库暴露为标准 MCP 工具（`search_knowledge_base`，Streamable HTTP `/mcp`），Claude Desktop / Cursor 可直接接入
 
 **和 RagTool 的关系？（一个内核两壳暴露）**
@@ -259,7 +281,7 @@ RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（
 
 ---
 
-## 15. 语义缓存
+## 16. 语义缓存
 
 **Q：语义缓存怎么设计的？**
 
@@ -277,7 +299,7 @@ RagTool（`@Tool`，对内 Function Calling 进程内直调）与 RagMcpTools（
 
 ---
 
-## 16. 历史数据生命周期（定时清理）
+## 17. 历史数据生命周期（定时清理）
 
 **Q：历史数据越来越多怎么处理？**
 
@@ -293,7 +315,7 @@ Task 薄壳（@Scheduled 只管触发）+ Service 核心（清理逻辑）分层
 
 ---
 
-## 17. 测试分层与 CI
+## 18. 测试分层与 CI
 
 **Q：测试怎么做的？**
 

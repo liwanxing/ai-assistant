@@ -12,7 +12,6 @@ import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
 import com.liwx.learning.rag.service.SessionCleanupService;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,19 +41,23 @@ import java.util.regex.Pattern;
 @RequestMapping("/rag")
 public class RagController {
 
-    @Autowired
-    private RagService ragService;
-    @Autowired
-    private ChatMemory chatMemory;
-    @Autowired
-    private ChatSessionMapper chatSessionMapper;
-    @Autowired
-    private RagDocumentMapper ragDocumentMapper;
-    @Autowired
-    private SessionCleanupService sessionCleanupService;
+    private final RagService ragService;
+    private final ChatMemory chatMemory;
+    private final ChatSessionMapper chatSessionMapper;
+    private final RagDocumentMapper ragDocumentMapper;
+    private final SessionCleanupService sessionCleanupService;
 
     @Value("${rag.upload-dir}")
     private String uploadDir;
+
+    public RagController(RagService ragService, ChatMemory chatMemory, ChatSessionMapper chatSessionMapper,
+                         RagDocumentMapper ragDocumentMapper, SessionCleanupService sessionCleanupService) {
+        this.ragService = ragService;
+        this.chatMemory = chatMemory;
+        this.chatSessionMapper = chatSessionMapper;
+        this.ragDocumentMapper = ragDocumentMapper;
+        this.sessionCleanupService = sessionCleanupService;
+    }
 
     /**
      * 文档上传（异步）：

@@ -5,7 +5,6 @@ import com.liwx.learning.common.Result;
 import com.liwx.learning.user.dto.LoginDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,10 +28,13 @@ import java.util.Map;
 @RestController
 public class AuthController {
 
-    @Autowired
-    private UserMapper userMapper;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
+
+    public AuthController(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+        this.userMapper = userMapper;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     /**
      * 登录：查数据库验证账号密码，成功后 Sa-Token 自动生成 token

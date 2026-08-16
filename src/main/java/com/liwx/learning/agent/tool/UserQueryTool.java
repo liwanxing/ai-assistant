@@ -6,7 +6,6 @@ import com.liwx.learning.user.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -20,16 +19,23 @@ import java.util.List;
  *   问"系统里有哪些用户"   → 模型调 listUsers
  *
  * 复用现有的 UserMapper + PermissionMapper，只查不改
+ *
+ * @ToolPermission：查的是用户隐私数据（邮箱/手机号），没权限的用户连工具都不能看见——
+ * 工具是模型在运行时调用的，绕过了接口层的 @SaCheckPermission，候选池这里必须再挡一道
  */
 @Slf4j
 @Component
+@ToolPermission("user:list")
 public class UserQueryTool {
 
-    @Autowired
-    private UserMapper userMapper;
+    private final UserMapper userMapper;
 
-    @Autowired
-    private PermissionMapper permissionMapper;
+    private final PermissionMapper permissionMapper;
+
+    public UserQueryTool(UserMapper userMapper, PermissionMapper permissionMapper) {
+        this.userMapper = userMapper;
+        this.permissionMapper = permissionMapper;
+    }
 
     /**
      * 查询系统用户总数

@@ -2,6 +2,7 @@ package com.liwx.learning.rag.service;
 
 import com.liwx.learning.rag.entity.ConversationSummary;
 import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
@@ -9,7 +10,6 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -34,33 +34,40 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ConversationSummaryService {
 
-    @Autowired
-    private ChatModel chatModel;
-    @Autowired
-    private ConversationSummaryMapper summaryMapper;
+    /*
+     * 字段四类分法，各归各位（判断标准：是不是 Spring 容器里的 Bean、new 的时候必须给）：
+     *
+     * ① Bean 依赖         → 未初始化的 final，由 @RequiredArgsConstructor 生成的构造器注入
+     * ② 固定值/常量       → final + 直接初始化（不是依赖，构造器不管它）
+     * ③ @Value 注入的资源 → 非 final（若声明 final，Lombok 会把它塞进构造参数，
+     *                       而 @Value 只在字段上生效 → 启动报错）
+     * ④ 生命周期中间产物   → 非 final（@PostConstruct 在构造之后才执行，
+     *                       与"final 必须在构造结束前赋值"天生冲突）
+     */
 
-    // 提示词外部化：从 classpath:prompts/ 加载
+    // ① Bean 依赖
+    private final ChatModel chatModel;
+    private final ConversationSummaryMapper summaryMapper;
+
+    // ② 固定值：保留最近 N 条消息不参与压缩（超出部分才摘要）
+    private final int keepRecent = 20;
+
+    // ③ @Value 注入：提示词外部化，从 classpath:prompts/ 加载
     @Value("classpath:prompts/conversation-summary.st")
     private Resource summaryPromptResource;
 
-    // 启动时加载并缓存，避免每次压缩都读文件
+    // ④ 生命周期中间产物：启动时加载并缓存，避免每次压缩都读文件
     private String summaryPrompt;
+
+    // ② 常量：注入到 SYSTEM 消息末尾的摘要标记前缀
+    private static final String SUMMARY_PREFIX = "\n\n【之前对话摘要】";
 
     @PostConstruct
     void loadPrompt() throws java.io.IOException {
         summaryPrompt = summaryPromptResource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-    }
-
-    private final int keepRecent;
-
-    private static final String SUMMARY_PREFIX = "\n\n【之前对话摘要】";
-
-    public ConversationSummaryService(ChatModel chatModel, ConversationSummaryMapper summaryMapper) {
-        this.chatModel = chatModel;
-        this.summaryMapper = summaryMapper;
-        this.keepRecent = 20;
     }
 
     /**

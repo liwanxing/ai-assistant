@@ -43,11 +43,11 @@ import java.util.concurrent.TimeUnit;
  *   变体间互不依赖，串行是白等；虽然本地检索毫秒级、并行收益有限（链路大头在 LLM 调用），
  *   但这里把 CompletableFuture.allOf 协调多任务、单路降级、按序合并的标准范式练扎实了
  *
- * 这个类把原来 RagAdvisor 里「每次都执行」的检索逻辑，封装成一个 @Tool
- * 区别：
- *   RagAdvisor（旧）：每个请求都走向量检索，模型管不了
- *   RagTool（新）：模型看到 @Tool 的 description 后自己决定是否调用
- */
+ * 为什么 RAG 是 @Tool 而不是 Advisor：
+ *   这是 Agent，模型有意图识别——问"几点了"不需要检索知识库，只有问知识库相关问题时才该搜
+ *   Advisor 是"每次都执行"，模型管不了；@Tool 是模型自己决定调不调
+ *   纯 RAG 应用（固定每次都搜）才适合放 Advisor，Agent 场景该放 Tool
+*/
 @Slf4j
 @Component
 public class RagTool {

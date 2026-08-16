@@ -10,7 +10,6 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.scheduling.annotation.Async;
@@ -33,11 +32,9 @@ import java.util.Map;
 @Service
 public class RagService {
 
-    @Autowired
-    private RagDocumentMapper ragDocumentMapper;
+    private final RagDocumentMapper ragDocumentMapper;
 
-    @Autowired
-    private RagChunkMapper ragChunkMapper;
+    private final RagChunkMapper ragChunkMapper;
 
     /**
      * 向量数据库（本项目用 Milvus）
@@ -49,22 +46,29 @@ public class RagService {
      * 3. 存的不是表格：存的是 1024 维浮点数数组 + 元数据，为向量计算专门优化了存储结构。
      * 一句话：向量数据库 = 存向量的仓库 + 快速找相似向量的索引引擎
      */
-    @Autowired
-    private VectorStore vectorStore;
-    @Autowired
-    private EmbeddingModel embeddingModel;
+    private final VectorStore vectorStore;
+    private final EmbeddingModel embeddingModel;
 
     /**
      * 语义缓存：文档变更后全量失效（旧答案基于旧知识库，不清缓存会一直返回过期答案）
      */
-    @Autowired
-    private SemanticCacheStore semanticCacheStore;
+    private final SemanticCacheStore semanticCacheStore;
 
     @Value("${rag.retry.max-attempts:3}")
     private int maxAttempts;
 
     @Value("${rag.retry.delay-ms:5000}")
     private long retryDelayMs;
+
+    public RagService(RagDocumentMapper ragDocumentMapper, RagChunkMapper ragChunkMapper,
+                      VectorStore vectorStore, EmbeddingModel embeddingModel,
+                      SemanticCacheStore semanticCacheStore) {
+        this.ragDocumentMapper = ragDocumentMapper;
+        this.ragChunkMapper = ragChunkMapper;
+        this.vectorStore = vectorStore;
+        this.embeddingModel = embeddingModel;
+        this.semanticCacheStore = semanticCacheStore;
+    }
 
     /**
      * 异步处理文档：读取 → 切分 → 给 chunk 设置 ID → 向量化 → 存 Milvus → 更新状态

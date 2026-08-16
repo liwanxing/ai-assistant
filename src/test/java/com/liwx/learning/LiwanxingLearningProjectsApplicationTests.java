@@ -5,12 +5,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * 项目启动上下文测试：验证 Spring 容器能正常加载所有 Bean
- * 如果这个测试通过，说明所有配置、依赖、Bean 都没问题。
- * 如果失败，通常是某个自动配置缺少必要参数或依赖。
+ * 冒烟测试：方法体虽然是空的，但 @SpringBootTest 会启动整个 Spring 容器。
+ * 能启动成功 = 所有 Bean 的创建、依赖注入、配置绑定都 OK。
+ * 启动失败 = 某处装配出了问题（缺配置、依赖找不到、提示词文件丢失等）。
+ *
+ * mvn test    自动批量跑所有测试类（不用一个个手动点），默认跳过 @Tag("integration")
+ * mvn test -Dgroups=integration  只跑集成测试（需本地启动好 MySQL/Redis/Milvus）
  */
 @SpringBootTest
-@Tag("integration")  // 集成测试：加载完整上下文需 MySQL/Milvus/Redis/API Key，mvn test 默认排除，手动跑：mvn test -Dgroups=integration
+@Tag("integration")
 class LiwanxingLearningProjectsApplicationTests {
 
 	@Test

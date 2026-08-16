@@ -215,7 +215,7 @@ const deleteSession = (session) => {
 }
 
 // ──────────────────────────────────────
-// 发送问题：GET /agent/chat?question=xxx（SSE 流式输出）
+// 发送问题：GET /agent/chat-stream?question=xxx（SSE 流式输出）
 // 不用 axios（axios 不支持流式读取），改用原生 fetch + ReadableStream
 // ──────────────────────────────────────
 const handleAsk = async () => {
@@ -246,7 +246,7 @@ const handleAsk = async () => {
       formData.append('question', question)
       formData.append('sessionId', sessionId.value)
       formData.append('image', selectedImage.value)
-      response = await fetch('/api/agent/chat-with-image', {
+      response = await fetch('/api/agent/chat-with-image-stream', {
         method: 'POST',
         headers: { satoken: token },
         body: formData
@@ -254,7 +254,7 @@ const handleAsk = async () => {
     } else {
       // 纯文本：GET URL 参数（原有逻辑）
       response = await fetch(
-        `/api/agent/chat?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
+        `/api/agent/chat-stream?question=${encodeURIComponent(question)}&sessionId=${sessionId.value}`,
         { headers: { satoken: token } }
       )
     }

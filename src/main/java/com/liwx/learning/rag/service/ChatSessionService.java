@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -22,10 +21,13 @@ import java.util.Map;
 @Service
 public class ChatSessionService {
 
-    @Autowired
-    private ChatSessionMapper chatSessionMapper;
-    @Autowired
-    private ChatMemory chatMemory;
+    private final ChatSessionMapper chatSessionMapper;
+    private final ChatMemory chatMemory;
+
+    public ChatSessionService(ChatSessionMapper chatSessionMapper, ChatMemory chatMemory) {
+        this.chatSessionMapper = chatSessionMapper;
+        this.chatMemory = chatMemory;
+    }
 
     /**
      * 创建或更新会话：首次提问自动创建（标题取用户问题前 20 字），已有会话刷新活跃时间

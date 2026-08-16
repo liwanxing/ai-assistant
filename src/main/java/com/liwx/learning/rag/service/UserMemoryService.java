@@ -8,7 +8,6 @@ import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.scheduling.annotation.Async;
@@ -34,16 +33,19 @@ import java.util.stream.Collectors;
 @Service
 public class UserMemoryService {
 
-    @Autowired
-    private UserMemoryMapper userMemoryMapper;
-    @Autowired
-    private ChatModel chatModel;
-    @Autowired
-    private VectorStore vectorStore;
+    private final UserMemoryMapper userMemoryMapper;
+    private final ChatModel chatModel;
+    private final VectorStore vectorStore;
 
     // 提示词外部化：从 classpath:prompts/ 加载，模板内用 {userMessage} 占位
     @Value("classpath:prompts/memory-extraction.st")
     private Resource memoryExtractionPromptResource;
+
+    public UserMemoryService(UserMemoryMapper userMemoryMapper, ChatModel chatModel, VectorStore vectorStore) {
+        this.userMemoryMapper = userMemoryMapper;
+        this.chatModel = chatModel;
+        this.vectorStore = vectorStore;
+    }
 
     /**
      * 检索与当前问题最相关的用户记忆，拼成 system prompt 片段

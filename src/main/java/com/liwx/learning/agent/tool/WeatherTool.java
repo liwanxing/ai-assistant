@@ -1,5 +1,6 @@
 package com.liwx.learning.agent.tool;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -27,6 +28,7 @@ public class WeatherTool {
     }
 
     @Tool(description = "查询指定城市的实时天气。当用户问今天天气、温度多少、要不要带伞、穿什么衣服时调用此工具。")
+    @CircuitBreaker(name = "weatherCircuitBreaker", fallbackMethod = "fallback")
     public String getWeather(
             @ToolParam(description = "城市名，如：北京、上海、深圳、广州") String city
     ) {
@@ -76,5 +78,11 @@ public class WeatherTool {
 
         log.info("天气查询成功：{}{}", live.get("province"), live.get("city"));
         return result;
+    }
+
+    /** 熔断降级：高德 API 连续失败时返回兜底提示 */
+    private String fallback(String city, Throwable t) {
+        log.warn("WeatherTool 熔断降级，city={}，原因：{}", city, t.getMessage());
+        return "天气查询服务暂时不可用，请稍后再试";
     }
 }

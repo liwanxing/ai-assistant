@@ -13,11 +13,8 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.ToolCallbackProvider;
 import com.liwx.learning.rag.advisor.LangfuseAdvisor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
@@ -62,17 +59,14 @@ public class AiConfig {
      * RAG 不在这里做——RAG 逻辑在 RagTool 里，通过 .tools(ragTool) 注册给模型，模型自己决定是否调用
      *
      * 工具不在 Builder 层注册，而是在每次请求时通过 .tools() 注册（官方推荐做法）。
+     * 本地工具和 MCP 远程工具统一走 ToolRegistryService 三层筛选（常驻 + 权限 + 向量预筛）。
      */
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  ConversationSummaryService summaryService,
                                  UserMemoryService userMemoryService,
-                                 SemanticCacheStore semanticCacheStore,
-                                 ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
-                                 @Autowired(required = false) RestClient langfuseRestClient) {
-        // MCP 工具是可选能力：默认 MCP_ENABLED=false 时不注册远程工具（不强依赖 graph-learning-java 项目），
-        // 联调时设环境变量 MCP_ENABLED=true，Spring AI 自动创建 McpToolCallbackProvider 后这里才生效
-        ToolCallbackProvider toolCallbackProvider = mcpToolCallbackProvider.getIfAvailable();
+                                SemanticCacheStore semanticCacheStore,
+                                @Autowired(required = false) RestClient langfuseRestClient) {
         ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
                         new TokenUsageAdvisor(),                       // Token 监控：记录每次调用的 token 消耗
@@ -100,18 +94,6 @@ public class AiConfig {
             log.info("Langfuse 可观测性已启用");
         }
 
-        if (toolCallbackProvider == null) {
-            log.info("MCP 客户端未启用（MCP_ENABLED=false），不注册远程工具");
-        } else {
-            // 打印 MCP 远程工具注册情况，启动时一眼看到连了哪些远程工具
-            ToolCallback[] mcpCallbacks = toolCallbackProvider.getToolCallbacks();
-            log.info("MCP 远程工具注册完成，共 {} 个：", mcpCallbacks.length);
-            for (ToolCallback tc : mcpCallbacks) {
-                log.info("  └─ {} : {}", tc.getToolDefinition().name(), tc.getToolDefinition().description());
-            }
-            // MCP 远程工具：defaultTools 是 Spring AI 2.0 替代 defaultToolCallbacks 的新 API
-            builder = builder.defaultTools(toolCallbackProvider);
-        }
         return builder.build();
     }
 }

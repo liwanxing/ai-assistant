@@ -209,6 +209,20 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         recordExceptions:
           - java.lang.Exception
+      weatherCircuitBreaker:           # 高德天气 API，WeatherTool 使用
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        recordExceptions:
+          - java.lang.Exception
+      mcpCircuitBreaker:               # MCP 远程工具调用
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        recordExceptions:
+          - java.lang.Exception
       llmCircuitBreaker:               # LLM 主调用（通义千问），AiClientService 使用
         slidingWindowSize: 10
         failureRateThreshold: 50
