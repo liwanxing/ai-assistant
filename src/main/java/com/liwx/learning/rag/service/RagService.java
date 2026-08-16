@@ -1,5 +1,6 @@
 package com.liwx.learning.rag.service;
 
+import com.liwx.learning.ai.advisor.core.SemanticCacheStore;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
 import com.liwx.learning.rag.mapper.RagChunkMapper;

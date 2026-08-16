@@ -1,6 +1,6 @@
-package com.liwx.learning.rag.advisor;
+package com.liwx.learning.ai.advisor;
 
-import com.liwx.learning.rag.service.UserMemoryService;
+import com.liwx.learning.ai.advisor.core.UserMemoryService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;

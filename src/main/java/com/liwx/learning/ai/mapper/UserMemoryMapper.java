@@ -1,6 +1,6 @@
-package com.liwx.learning.rag.mapper;
+package com.liwx.learning.ai.mapper;
 
-import com.liwx.learning.rag.entity.UserMemory;
+import com.liwx.learning.ai.entity.UserMemory;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

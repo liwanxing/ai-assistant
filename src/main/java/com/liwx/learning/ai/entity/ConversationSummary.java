@@ -1,4 +1,4 @@
-package com.liwx.learning.rag.entity;
+package com.liwx.learning.ai.entity;
 
 import lombok.Data;
 

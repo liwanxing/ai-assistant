@@ -1,6 +1,6 @@
 package com.liwx.learning.agent.service;
 
-import com.liwx.learning.rag.advisor.UserMemoryAdvisor;
+import com.liwx.learning.ai.advisor.UserMemoryAdvisor;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;

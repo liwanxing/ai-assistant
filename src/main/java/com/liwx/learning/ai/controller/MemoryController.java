@@ -1,9 +1,9 @@
-package com.liwx.learning.rag.controller;
+package com.liwx.learning.ai.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
-import com.liwx.learning.rag.entity.UserMemory;
-import com.liwx.learning.rag.service.UserMemoryService;
+import com.liwx.learning.ai.entity.UserMemory;
+import com.liwx.learning.ai.advisor.core.UserMemoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

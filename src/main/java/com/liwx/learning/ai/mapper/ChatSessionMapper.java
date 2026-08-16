@@ -1,6 +1,6 @@
-package com.liwx.learning.rag.mapper;
+package com.liwx.learning.ai.mapper;
 
-import com.liwx.learning.rag.entity.ChatSession;
+import com.liwx.learning.ai.entity.ChatSession;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

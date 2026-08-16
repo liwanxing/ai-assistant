@@ -1,7 +1,8 @@
-package com.liwx.learning.rag.service;
+package com.liwx.learning.ai.service;
 
-import com.liwx.learning.rag.mapper.ChatSessionMapper;
-import com.liwx.learning.rag.mapper.ConversationSummaryMapper;
+import com.liwx.learning.ai.advisor.core.SemanticCacheStore;
+import com.liwx.learning.ai.mapper.ChatSessionMapper;
+import com.liwx.learning.ai.mapper.ConversationSummaryMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;

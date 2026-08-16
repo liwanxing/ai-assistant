@@ -1,4 +1,4 @@
-package com.liwx.learning.config;
+package com.liwx.learning.ai.advisor.core;
 
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;

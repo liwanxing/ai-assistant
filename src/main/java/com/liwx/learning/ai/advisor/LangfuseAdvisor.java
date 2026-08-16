@@ -1,4 +1,4 @@
-package com.liwx.learning.rag.advisor;
+package com.liwx.learning.ai.advisor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

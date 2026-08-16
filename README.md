@@ -116,6 +116,20 @@
                                   Langfuse（LLM 可观测）
 ```
 
+## 后端模块结构
+
+```
+com.liwx.learning
+├─ agent/   编排层：对话入口、AiClientService、工具池（tool/）、MCP 客户端
+├─ ai/      对话能力层：advisor/（壳：记忆注入/摘要压缩/语义缓存/Langfuse）+
+│           advisor/core/（芯：核心逻辑 + 记忆读写装饰器）
+│           + 会话/记忆的 entity/mapper/service + 定时清理
+├─ rag/     知识库：文档管理、切分、检索（RagService/Rerank/QueryRewrite）
+└─ user/ common/ config/ aspect/ exception/   支撑：RBAC、工具、装配、AOP、异常
+```
+
+按功能域分包而非按技术角色分层：agent 是用 AI 的编排层，ai 是对话能力层（记忆/缓存/观测每轮必经，高内聚），rag 纯知识库。重组决策与踩坑见 [DESIGN.md](DESIGN.md)。
+
 ## 快速开始
 
 ### 前置要求

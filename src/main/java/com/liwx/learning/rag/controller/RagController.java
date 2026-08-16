@@ -2,15 +2,15 @@ package com.liwx.learning.rag.controller;
 
 import com.liwx.learning.common.FileValidator;
 import com.liwx.learning.common.Result;
-import com.liwx.learning.rag.entity.ChatSession;
+import com.liwx.learning.ai.entity.ChatSession;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
-import com.liwx.learning.rag.mapper.ChatSessionMapper;
+import com.liwx.learning.ai.mapper.ChatSessionMapper;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import com.liwx.learning.rag.service.RagService;
-import com.liwx.learning.rag.service.SessionCleanupService;
+import com.liwx.learning.ai.service.SessionCleanupService;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;

@@ -1,4 +1,4 @@
-package com.liwx.learning.rag.service;
+package com.liwx.learning.ai.advisor.core;
 
 import io.milvus.client.MilvusServiceClient;
 import lombok.extern.slf4j.Slf4j;

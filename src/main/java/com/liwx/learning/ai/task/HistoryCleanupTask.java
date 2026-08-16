@@ -1,6 +1,6 @@
-package com.liwx.learning.rag.task;
+package com.liwx.learning.ai.task;
 
-import com.liwx.learning.rag.service.SessionCleanupService;
+import com.liwx.learning.ai.service.SessionCleanupService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;

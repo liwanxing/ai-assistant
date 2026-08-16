@@ -1,4 +1,4 @@
-package com.liwx.learning.config;
+package com.liwx.learning.ai.advisor.core;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

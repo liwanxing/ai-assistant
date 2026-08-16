@@ -1,7 +1,7 @@
-package com.liwx.learning.rag.service;
+package com.liwx.learning.ai.advisor.core;
 
-import com.liwx.learning.rag.entity.UserMemory;
-import com.liwx.learning.rag.mapper.UserMemoryMapper;
+import com.liwx.learning.ai.entity.UserMemory;
+import com.liwx.learning.ai.mapper.UserMemoryMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.PromptTemplate;
