@@ -4,7 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.liwx.learning.common.Result;
 import com.liwx.learning.rag.entity.UserMemory;
 import com.liwx.learning.rag.service.UserMemoryService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,10 +24,10 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/memory")
+@RequiredArgsConstructor
 public class MemoryController {
 
-    @Autowired
-    private UserMemoryService userMemoryService;
+    private final UserMemoryService userMemoryService;
 
     /**
      * 查询当前用户的所有记忆

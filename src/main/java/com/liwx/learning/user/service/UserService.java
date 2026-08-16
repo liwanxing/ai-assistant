@@ -6,19 +6,18 @@ import com.liwx.learning.user.dto.UserCreateDTO;
 import com.liwx.learning.user.dto.UserUpdateDTO;
 import com.liwx.learning.user.entity.User;
 import com.liwx.learning.user.mapper.UserMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
-    @Autowired
-    private UserMapper userMapper;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
 
     public List<User> getAllUsers() {
         return userMapper.selectAll();

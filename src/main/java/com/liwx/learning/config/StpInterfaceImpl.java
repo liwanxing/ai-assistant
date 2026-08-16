@@ -2,7 +2,7 @@ package com.liwx.learning.config;
 
 import cn.dev33.satoken.stp.StpInterface;
 import com.liwx.learning.user.mapper.PermissionMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -21,10 +21,10 @@ import java.util.List;
  * 数据全在数据库里，改库里的角色/权限分配，接口的权限立即变化，不用改代码
  */
 @Component
+@RequiredArgsConstructor
 public class StpInterfaceImpl implements StpInterface {
 
-    @Autowired
-    private PermissionMapper permissionMapper;
+    private final PermissionMapper permissionMapper;
 
     /**
      * 返回指定用户的角色列表
