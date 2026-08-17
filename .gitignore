@@ -48,3 +48,8 @@ application-local.yml
 
 # 临时提交信息文件
 _commit-msg.txt
+
+# Node.js
+node_modules/
+mobile-app/dist/
+mobile-app/unpackage/
