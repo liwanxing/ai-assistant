@@ -66,6 +66,20 @@
 
 历史数据不会无限膨胀：每天凌晨 3 点定时清理 180 天未活跃的会话"四件套"（消息原文 + 摘要 + 聊天图片文件 + 会话记录），锚定删除保证幂等可重试，分批执行防大事务。
 
+### 移动端（uni-app 多端）
+
+不止 Web：一套 uni-app 代码编译出微信小程序 / H5 / Android/iOS APP，直连后端同一套 API，Sa-Token 账号体系与 Web 端互通：
+
+| 功能 | 说明 |
+|------|------|
+| 对话 | 流式输出 + Markdown 渲染，`enableChunked` 消费 Web 端同一 SSE 接口，真机降级兜底 |
+| 登录 / 记忆 | 同一账号体系登录；AI 提取的长期记忆手机端可查可管 |
+| 历史聊天记录 | 会话列表、点开续聊、可删除 |
+
+<p align="center">
+  <img src="docs/images/mobile-chat.png" alt="手机端对话" width="300">
+</p>
+
 ## 技术亮点与设计取舍
 
 > 每条都对应真实的工程问题，面试聊项目的弹药库（完整版见 [DESIGN.md](DESIGN.md)）
@@ -190,6 +204,17 @@ npm run dev
 
 Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即可让它们检索本项目的 RAG 知识库。
 
+### 6.（可选）启动移动端 / 小程序
+
+```bash
+cd mobile-app
+npm install
+npm run dev:mp-weixin   # 微信小程序：微信开发者工具导入 mobile-app/dist/dev/mp-weixin
+npm run dev:h5          # 或 H5
+```
+
+手机真机 / 模拟器要访问电脑上的后端：把 `src/api/request.js` 的 `BASE_URL` 改成电脑局域网 IP。
+
 ### 运行测试
 
 测试分两层，CI（GitHub Actions）只跑第一层，零外部依赖：
@@ -223,6 +248,7 @@ Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即�
 | 服务保护 | Resilience4j 熔断 + Guava 用户级限流 |
 | 可观测性 | Langfuse 全链路追踪（含 Token 用量，本地控制台同步一行） |
 | 前端 | Vue 3 + Element Plus + SSE 流式 |
+| 移动端 | uni-app（Vue 3）：一套代码编译微信小程序 / H5 / APP |
 | 部署 | Docker + Docker Compose |
 
 ## 更多
