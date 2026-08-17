@@ -1,16 +1,55 @@
 {
-	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
+	"pages": [
 		{
 			"path": "pages/index/index",
 			"style": {
-				"navigationBarTitleText": "uni-app"
+				"navigationBarTitleText": "对话"
+			}
+		},
+		{
+			"path": "pages/memory/memory",
+			"style": {
+				"navigationBarTitleText": "记忆管理"
+			}
+		},
+		{
+			"path": "pages/login/login",
+			"style": {
+				"navigationBarTitleText": "登录",
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/sessions/sessions",
+			"style": {
+				"navigationBarTitleText": "会话历史"
 			}
 		}
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "uni-app",
-		"navigationBarBackgroundColor": "#F8F8F8",
-		"backgroundColor": "#F8F8F8"
+		"navigationBarTitleText": "AI 助手",
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F5F5F5"
+	},
+	"tabBar": {
+		"color": "#999999",
+		"selectedColor": "#409EFF",
+		"backgroundColor": "#FFFFFF",
+		"borderStyle": "black",
+		"list": [
+			{
+				"pagePath": "pages/index/index",
+				"text": "对话",
+				"iconPath": "static/icons/chat.png",
+				"selectedIconPath": "static/icons/chat-active.png"
+			},
+			{
+				"pagePath": "pages/memory/memory",
+				"text": "记忆",
+				"iconPath": "static/icons/memory.png",
+				"selectedIconPath": "static/icons/memory-active.png"
+			}
+		]
 	}
 }
