@@ -80,6 +80,9 @@ const sendMessage = () => {
     onError: (err: any) => {
       streaming.value = false
       streamText.value = ''
+      // 不能静默失败：网络断了/token 过期时用户需要知道“为什么没回复”
+      const msg = (err && err.message) || '网络异常，请稍后重试'
+      uni.showToast({ title: msg, icon: 'none' })
     }
   })
 }
