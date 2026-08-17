@@ -21,6 +21,10 @@ public class WeatherTool {
     @Value("${amap.api-key}")
     private String apiKey;
 
+    /** 高德 API 主机地址。共享 RestClient 不带 baseUrl（它同时服务多个工具），需在此拼完整 URL */
+    @Value("${amap.base-url:https://restapi.amap.com}")
+    private String baseUrl;
+
     private final RestClient restClient;
 
     public WeatherTool(RestClient restClient) {
@@ -34,15 +38,11 @@ public class WeatherTool {
     ) {
         log.info("WeatherTool 被调用，查询城市：{}", city);
 
+        // 模板变量方式拼 URL：中文城市名会自动 URL 编码
         @SuppressWarnings("unchecked")
         Map<String, Object> response = restClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/v3/weather/weatherInfo")
-                        .queryParam("key", apiKey)
-                        .queryParam("city", city)
-                        .queryParam("extensions", "base")
-                        .queryParam("output", "JSON")
-                        .build())
+                .uri(baseUrl + "/v3/weather/weatherInfo?key={key}&city={city}&extensions={extensions}&output={output}",
+                        apiKey, city, "base", "JSON")
                 .retrieve()
                 .body(Map.class);
 

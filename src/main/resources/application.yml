@@ -123,6 +123,8 @@ management:
 # 申请地址：https://lbs.amap.com/ → 控制台 → 应用管理 → 创建 Key（选 Web服务）
 amap:
   api-key: ${AMAP_API_KEY:amap-placeholder}
+  # 天气 API 主机地址：共享 RestClient 不带 baseUrl，WeatherTool 需拼完整 URL
+  base-url: https://restapi.amap.com
 
 # RocketMQ（rocketmq-spring-boot-starter 自动装配 RocketMQTemplate）
 # RAG 文档异步处理：上传接口发消息 → 消费端解析/切分/向量化入库

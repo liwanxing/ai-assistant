@@ -227,4 +227,4 @@ Claude Desktop / Cursor 配置 MCP 服务器 `http://localhost:8080/mcp`，即�
 
 ## 更多
 
-- [工程设计与思考](DESIGN.md) — 设计决策、取舍理由与踩坑经验（面试素材）
+- [工程设计与思考](DESIGN.md) — 设计决策、取舍理由与踩坑经验

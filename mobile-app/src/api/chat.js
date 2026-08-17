@@ -1,14 +1,5 @@
 // ======================================================================
-// 对话 API（对标 PC 端 RagView.vue 里的 SSE 流式对话）
-//
-// PC 端用 EventSource / fetch + ReadableStream 接收 SSE
-// 小程序端用 uni.request + createRequestTask 接收流式数据
-//
-// 后端接口：
-//   GET /agent/chat-stream?question=xxx&sessionId=xxx → SSE 流式返回
-//   GET /rag/sessions → 会话列表
-//   GET /rag/sessions/{sessionId}/messages → 历史消息
-//   DELETE /rag/sessions/{sessionId} → 删除会话
+// 对话 API
 // ======================================================================
 
 import { getToken } from './request'
@@ -16,23 +7,20 @@ import { getToken } from './request'
 const BASE_URL = 'http://192.168.5.55:8080'
 
 /**
- * 发送对话（SSE 流式）
- *
- * 原理说明：
- *   后端返回 Content-Type: text/event-stream，数据是逐行推送的
- *   PC 端用 EventSource 自动解析 SSE 格式
- *   小程序没有 EventSource，但 uni.request 的 onChunkReceived 回调
- *   可以收到每次推送的数据块，效果一样
- *
- * @param {string} question - 用户问题
- * @param {string} sessionId - 会话 ID（同一个 ID = 续聊）
- * @param {function} onChunk - 每收到一块数据时的回调
- * @param {function} onDone - 对话结束时的回调（收到 [DONE] 标记）
- * @param {function} onError - 出错回调
- * @returns {RequestTask} 可用于取消请求的 task 对象
+ * 发送对话（优先流式，失败自动降级为普通请求）
  */
 export function chatStream({ question, sessionId, onChunk, onDone, onError }) {
   const token = getToken()
+
+  // 先尝试流式
+  return tryStream({ question, sessionId, token, onChunk, onDone, onError })
+}
+
+/**
+ * 流式对话
+ */
+function tryStream({ question, sessionId, token, onChunk, onDone, onError }) {
+  let chunkReceived = false
 
   const task = uni.request({
     url: `${BASE_URL}/agent/chat-stream`,
@@ -42,29 +30,39 @@ export function chatStream({ question, sessionId, onChunk, onDone, onError }) {
       'satoken': token,
       'Accept': 'text/event-stream'
     },
-    // 关键：开启流式接收
     enableChunked: true,
 
-    // 非流式回调（整个响应完成时触发，我们在这里做收尾）
-    success: () => {
+    success: (res) => {
+      console.log('[chat] request success, statusCode:', res.statusCode)
+      // 如果整个过程中没有收到任何 chunk，说明流式失败了
+      // 用 success 回调里的数据作为降级
+      if (!chunkReceived && res.data) {
+        console.log('[chat] no chunks received, falling back to response data')
+        const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+        const content = parseSSE(text)
+        if (content) {
+          onChunk && onChunk(content)
+        }
+      }
       onDone && onDone()
     },
     fail: (err) => {
+      console.error('[chat] request failed:', err)
       onError && onError(err)
     }
   })
 
-  // 流式回调：每次收到数据块时触发
-  // 数据格式是 SSE 的 "data: xxx\n\n"，需要去掉前缀
-  if (typeof task.onChunkReceived === 'function') {
+  if (task && typeof task.onChunkReceived === 'function') {
     task.onChunkReceived((res) => {
-      // res.data 是 ArrayBuffer，转成字符串
+      chunkReceived = true
       const text = new TextDecoder().decode(res.data)
-      // 解析 SSE 行：每行以 "data: " 开头
+      console.log('[chat] raw chunk:', text)
+      console.log('[chat] chunk received, length:', text.length)
+
       const lines = text.split('\n')
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const content = line.slice(6) // 去掉 "data: " 前缀
+        if (line.startsWith('data:')) {
+          const content = line.slice(5).trimStart()
           if (content === '[DONE]') {
             onDone && onDone()
           } else if (content) {
@@ -73,14 +71,32 @@ export function chatStream({ question, sessionId, onChunk, onDone, onError }) {
         }
       }
     })
+  } else {
+    console.warn('[chat] onChunkReceived not available, streaming disabled')
   }
 
   return task
 }
 
 /**
+ * 解析 SSE 文本，提取所有 data 内容
+ */
+function parseSSE(text) {
+  const lines = text.split('\n')
+  let result = ''
+  for (const line of lines) {
+    if (line.startsWith('data:')) {
+      const content = line.slice(5).trimStart()
+      if (content !== '[DONE]') {
+        result += content
+      }
+    }
+  }
+  return result
+}
+
+/**
  * 获取会话列表
- * @returns {Promise<Array<{ sessionId, title, activeTime }>>}
  */
 export function getSessions() {
   const token = getToken()
@@ -90,6 +106,7 @@ export function getSessions() {
       method: 'GET',
       header: { 'satoken': token },
       success: (res) => {
+        console.log('[sessions] response:', res.data)
         if (res.data.code === 200) {
           resolve(res.data.data)
         } else {
@@ -103,8 +120,6 @@ export function getSessions() {
 
 /**
  * 获取某个会话的历史消息
- * @param {string} sessionId
- * @returns {Promise<Array<{ role, content }>>}
  */
 export function getSessionMessages(sessionId) {
   const token = getToken()
@@ -127,7 +142,6 @@ export function getSessionMessages(sessionId) {
 
 /**
  * 删除会话
- * @param {string} sessionId
  */
 export function deleteSession(sessionId) {
   const token = getToken()
