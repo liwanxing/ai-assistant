@@ -76,6 +76,8 @@
 | 登录 / 记忆 | 同一账号体系登录；AI 提取的长期记忆手机端可查可管 |
 | 历史聊天记录 | 会话列表、点开续聊、可删除 |
 
+微信开发者工具导入、真机预览、发布上线等完整步骤见 [mobile-app/README.md](mobile-app/README.md)。
+
 <p align="center">
   <img src="docs/images/mobile-chat.png" alt="手机端对话" width="300">
 </p>
@@ -213,7 +215,7 @@ npm run dev:mp-weixin   # 微信小程序：微信开发者工具导入 mobile-a
 npm run dev:h5          # 或 H5
 ```
 
-手机真机 / 模拟器要访问电脑上的后端：把 `src/api/request.js` 的 `BASE_URL` 改成电脑局域网 IP。
+手机真机 / 模拟器要访问电脑上的后端：把 `src/api/request.js` 的 `BASE_URL` 改成电脑局域网 IP。详细步骤见 [mobile-app/README.md](mobile-app/README.md)。
 
 ### 运行测试
 
