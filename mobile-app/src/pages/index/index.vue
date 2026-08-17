@@ -11,7 +11,7 @@
     <!-- 消息列表区域 -->
     <scroll-view class="msg-list" scroll-y>
       <view class="empty-hint" v-if="messages.length === 0">
-        <text class="empty-icon">🤖</text>
+        <text class="empty-icon">✨</text>
         <text class="empty-text">你好，有什么可以帮你的？</text>
       </view>
 

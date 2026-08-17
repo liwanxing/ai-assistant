@@ -1,7 +1,7 @@
 <template>
   <view class="login-page">
     <view class="login-card">
-      <text class="login-title">🤖 AI 助手</text>
+      <text class="login-title">✨ AI 助手</text>
       <text class="login-subtitle">登录后开始对话</text>
 
       <view class="form-group">
@@ -10,6 +10,7 @@
           class="form-input"
           v-model="username"
           placeholder="请输入用户名"
+          @keyup.enter="handleLogin"
         />
       </view>
 
@@ -20,6 +21,7 @@
           v-model="password"
           type="password"
           placeholder="请输入密码"
+          @keyup.enter="handleLogin"
         />
       </view>
 
@@ -32,25 +34,42 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { login } from '../../api/auth'
 
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
 
-const handleLogin = () => {
+/**
+ * 登录流程（对标 PC 端 LoginView.vue 的 handleLogin）：
+ *
+ * PC 端：
+ *   const res = await request.post('/login', form)
+ *   localStorage.setItem('satoken', res.data.tokenValue)
+ *   router.push('/user')
+ *
+ * 小程序端：
+ *   const data = await login(username, password)  ← 内部自动 setToken
+ *   uni.switchTab('/pages/index/index')           ← switchTab 只能跳 TabBar 页面
+ */
+const handleLogin = async () => {
   if (!username.value || !password.value) {
     uni.showToast({ title: '请填写用户名和密码', icon: 'none' })
     return
   }
   loading.value = true
-
-  // TODO: Step 3 接入 POST /login API
-  setTimeout(() => {
+  try {
+    await login(username.value, password.value)
+    uni.showToast({ title: '登录成功', icon: 'success' })
+    // 登录成功 → 跳转到对话页（TabBar 页面必须用 switchTab）
+    setTimeout(() => {
+      uni.switchTab({ url: '/pages/index/index' })
+    }, 500)
+  } catch (e) {
+    // 错误已在 request.js 的拦截器里处理（弹 toast）
+  } finally {
     loading.value = false
-    // 模拟登录成功
-    uni.setStorageSync('satoken', 'mock-token-123')
-    uni.switchTab({ url: '/pages/index/index' })
-  }, 1000)
+  }
 }
 </script>
 
