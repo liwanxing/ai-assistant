@@ -2,9 +2,7 @@
 // 对话 API
 // ======================================================================
 
-import { getToken } from './request'
-
-const BASE_URL = 'http://192.168.5.55:8080'
+import { getToken, BASE_URL } from './request'
 
 /**
  * 发送对话（优先流式，失败自动降级为普通请求）

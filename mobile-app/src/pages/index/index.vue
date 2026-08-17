@@ -16,8 +16,10 @@
       <view v-for="(msg, index) in messages" :key="index" :id="'msg-' + index"
         class="msg-row" :class="msg.role === 'user' ? 'msg-user' : 'msg-ai'">
         <view class="msg-bubble" :class="msg.role === 'user' ? 'bubble-user' : 'bubble-ai'">
-          <text v-if="msg.role === 'user'" class="msg-text">{{ msg.content }}</text>
-          <rich-text v-else class="msg-text markdown-body" :nodes="renderMarkdown(msg.content)" />
+          <image v-if="msg.imageUrl" class="msg-image" :src="BASE_URL + msg.imageUrl" mode="widthFix"
+            @click="previewImage(msg.imageUrl)" />
+          <text v-if="msg.role === 'user' && msg.content" class="msg-text">{{ msg.content }}</text>
+          <rich-text v-else-if="msg.role !== 'user'" class="msg-text markdown-body" :nodes="renderMarkdown(msg.content)" />
         </view>
       </view>
 
@@ -43,16 +45,56 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
-import { chatStream } from '../../api/chat'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { chatStream, getSessionMessages } from '../../api/chat'
 import { renderMarkdown } from '../../utils/markdown'
+import { BASE_URL } from '../../api/request'
 
-const messages = ref<Array<{ role: string; content: string }>>([])
+interface ChatMessage { role: string; content: string; imageUrl?: string }
+
+const messages = ref<ChatMessage[]>([])
 const inputText = ref('')
 const streaming = ref(false)
 const streamText = ref('')
 let requestTask: any = null
 const sessionId = ref('s-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))
 const scrollTarget = ref('msg-bottom')
+
+// ---- 历史会话接入：sessions 页通过事件总线通知（navigateBack 方向传值）----
+// 打开历史会话：换 sessionId + 拉取历史消息；续聊时后端 ChatMemory 自动带上上下文
+const switchSessionHandler = async (payload: { sessionId: string; title: string }) => {
+  sessionId.value = payload.sessionId
+  messages.value = []
+  try {
+    const list = await getSessionMessages(payload.sessionId)
+    messages.value = list.map((m: any) => ({ role: m.role, content: m.content, imageUrl: m.imageUrl }))
+    scrollToBottom()
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '历史消息加载失败', icon: 'none' })
+  }
+}
+
+// 新会话：重置 sessionId，清空消息
+const newChatHandler = () => {
+  sessionId.value = 's-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+  messages.value = []
+}
+
+onLoad(() => {
+  uni.$on('switchSession', switchSessionHandler)
+  uni.$on('newChat', newChatHandler)
+})
+
+// 页面卸载时解绑，避免重复注册（tab 页常驻，主要是保险）
+onUnload(() => {
+  uni.$off('switchSession', switchSessionHandler)
+  uni.$off('newChat', newChatHandler)
+})
+
+// 点击图片消息全屏预览
+const previewImage = (url: string) => {
+  uni.previewImage({ urls: [BASE_URL + url] })
+}
 
 const sendMessage = () => {
   const text = inputText.value.trim()
@@ -119,6 +161,7 @@ const goSessions = () => {
 .bubble-user { background-color: #409EFF; color: #fff; margin-right: 36px; }
 .bubble-ai { background-color: #fff; color: #333; margin-left: 36px; }
 .msg-text { font-size: 15px; line-height: 1.6; word-break: break-all; }
+.msg-image { width: 160px; border-radius: 8px; margin-bottom: 6px; display: block; }
 .typing-dots { color: #999; font-size: 14px; }
 .markdown-body { font-size: 15px; line-height: 1.7; }
 .markdown-body pre { background-color: #f6f8fa; border-radius: 6px; padding: 10px 12px; margin: 8px 0; overflow-x: auto; }

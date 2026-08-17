@@ -14,7 +14,8 @@
 // ---- 配置 ----
 // 开发阶段：手机和电脑在同一局域网，用电脑的局域网 IP 访问后端
 // 生产环境：改成正式的服务器地址
-const BASE_URL = 'http://192.168.5.55:8080'
+// 导出供 chat.js 等模块复用（历史消息里的图片相对路径需要拼完整 URL）
+export const BASE_URL = 'http://192.168.5.55:8080'
 
 // ---- Token 读写 ----
 // PC 端用 localStorage，小程序端用 uni.setStorageSync / getStorageSync
