@@ -58,7 +58,7 @@
 
 ### 知识库管理
 
-文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分（TOKEN/PARAGRAPH/SEMANTIC 三策略）→ 向量化入 Milvus。异步链路走 RocketMQ：上传秒回，消费端处理，失败自动重投、耗尽进死信，幂等消费防重复（MQ 不可用自动降级 @Async）；删除时同步清 Milvus 向量 + 本地文件 + 记录，并主动失效语义缓存。
+文档上传（PDF/TXT/DOC/MD）→ Tika 解析 → 切分（TOKEN/PARAGRAPH/SEMANTIC 三策略）→ 向量化入 Milvus。异步链路走 RocketMQ：上传秒回，消费端处理，失败自动重投、耗尽进死信，幂等消费防重复（MQ 不可用自动降级 @Async）；坏文件秒判 FAILED 不空转重投（异常分类快速失败），卡死文档每小时对账扫描兜底并汇总邮件告警；删除时同步清 Milvus 向量 + 本地文件 + 记录，并主动失效语义缓存。
 
 ![知识库管理](docs/images/rag-docs.png)
 
@@ -96,6 +96,7 @@
 8. **幂等删除 + 锚定重试**：清理会话时"会话记录"最后删——中途失败，下轮任务能重新扫到重删（每步幂等）；整批失败则止损退出，防 while 死循环
 9. **跨语言/跨系统 Agent 协作**：Java 主 Agent + Python LangGraph（深度调研，Resilience4j 熔断保护）+ MCP 消费另一个 Java 项目的分析工具——三种集成方式（HTTP 工具、MCP、本地工具）各就其位
 10. **流式输出的现实工程**：绕开 DashScope 流式工具调用 ID 为空的 bug（同步调用 + 拆行 SSE 假流），同时解决 SSE 换行丢事件问题
+11. **文档处理三层兑底（快速失败/重投/对账告警）**：坏文件是"毒消息"，重试一万次也不会好——消费端按异常分类（DocumentParseException）秒判 FAILED 并 ACK，不空转 16 次重投；暂时性故障照旧 Broker 重投 + 死信；真无人认领的（死信堆积/@Async 重启丢/应用崩溃）由每小时超时对账扫描统一标 FAILED 并发 163 邮件汇总告警，6 小时阈值大于重投全程（约 4.6h）防 MQ 正常重试被误判
 
 ## 架构图
 
@@ -126,6 +127,7 @@
 │  ┌── 文档异步处理（RocketMQ）─────────────────────────────┐  │
 │  │ 上传 → 消息(持久化) → 消费端切分/向量化/双写入库         │  │
 │  │ 失败重投 + 死信兕底；幂等清理防重复；MQ 挂降级 @Async    │  │
+│  │ 毒消息秒判FAILED；超时对账扫描 → 163邮件告警            │  │
 │  └──────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
         │                │                │               │
@@ -172,6 +174,16 @@ spring:
 
 amap:
   api-key: 你的高德地图密钥
+
+# （可选）文档处理告警邮件：163 后台开启 POP3/SMTP 并生成授权码（不是登录密码）
+# spring:
+#   mail:
+#     username: yourmail@163.com
+#     password: 你的SMTP授权码
+# rag:
+#   alert:
+#     enabled: true
+#     mail-to: yourmail@163.com   # 收件邮箱，可发给自己
 ```
 
 ### 2. 启动基础设施
@@ -245,7 +257,8 @@ npm run dev:h5          # 或 H5
 | AI 能力 | Function Calling + RAG 七段链 + Advisor 链 + 三层记忆 |
 | 互操作 | MCP Client + MCP Server（Streamable HTTP） |
 | 数据库 | MySQL 8.0 + Milvus 2.4 + Redis 7 |
-| 消息队列 | RocketMQ 5.x（文档异步处理：持久化/重投/死信/幂等消费） |
+| 消息队列 | RocketMQ 5.x（文档异步处理：持久化/重投/死信/幂等消费/毒消息快速失败） |
+| 告警通知 | 163 SMTP 邮件（超时对账汇总告警，未配置自动关闭） |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j 熔断 + Guava 用户级限流 |
 | 可观测性 | Langfuse 全链路追踪（含 Token 用量，本地控制台同步一行） |

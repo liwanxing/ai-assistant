@@ -380,10 +380,34 @@ MQ 是至少一次（at-least-once）投递：消费成功但 ACK 失败、生�
 
 配套一个容易忽略的细节——双写顺序必须先 MySQL 后 Milvus：中断只会产生"MySQL 有、Milvus 缺"，下次重跑的幂等清理按 MySQL 清单删得干净；反过来会留下"MySQL 无、Milvus 有"的孤儿，清理根本找不到它。为什么按 MySQL 查而不是按 chunkCount 构造 ID：上次中断时 count 还是 0，按数构造会漏删；MySQL 里实际落了哪些行，删起来才准。
 
+**Q：文件本身坏了（毒消息）也要重试 16 次吗？**
+
+不用，异常分类快速失败。消费端 catch 分两类：
+
+| 异常 | 例子 | 处理 |
+|---|---|---|
+| `DocumentParseException`（自定义，确定性失败） | 文件损坏/加密/不存在 | 当场标 FAILED 后正常返回（= ACK）：不重投、不进死信，1 秒出结果 |
+| 其他（暂时性失败） | 网络抖动、Milvus/MySQL 挂 | 上抛 → Broker 重投 16 次 → 死信 |
+
+分类边界只圈"Tika 读文件"这一步：读的是磁盘上的静态文件，失败了不可能自己变好；后面 embedding/Milvus 都是网络调用，值得重试。判定标准是"失败发生在哪一步"（代码位置贴标签），不是"异常信息长什么样"——catch 匹配靠类型（instanceof），message 只是给人看的。
+
+@Async 降级路径的重试循环里加同一个 catch：同一个坏文件不管走哪条路都只处理一次，行为对称（不对称的代价：排查问题时还得先问"当时走的哪条路径"）。
+
+不分类的话，一张坏 PDF 要空转 16 次重投（约 5 小时）才进死信，期间每次失败刷一屏错误日志，前端一直转圈"处理中"。
+
+**Q：消息进了死信、@Async 任务随重启丢了，文档状态谁来收尸？**
+
+定时对账扫描（DocumentTimeoutTask）：每小时查一次 `status='PROCESSING' AND update_time < 6小时前`，命中即统一标 FAILED + 发 163 邮件汇总告警。6 小时阈值必须大于 16 次重投全程（约 4.6h），否则 MQ 还在老实重试就被判死，会出现 FAILED→SUCCESS 状态翻转。
+
+为什么扫数据库而不是监听死信 Topic：死信监听只覆盖"经过 MQ 且进了死信"这一种；@Async 重启丢任务、应用处理中途崩溃、消息压根丢了，这三种根本不产生死信，但共同终点都是"状态永远停在 PROCESSING"。对账不问过程只对结果，覆盖面是死信监听的超集。且异常分类做完后死信里剩的基本都是环境级持续故障，为它养一个实时消费者不值，6 小时内扫描兜住够了。
+
+告警渠道选型：钉钉/企微群机器人免费且最简（一个 webhook POST）；邮件免费（本项目选它：JavaMailSender 开箱即用）；短信收费（约 4.5 分/条）且个人签名审核麻烦。告警通道绝不能反噬主流程——发送失败只记日志不上抛，判 FAILED 已落库，为发邮件把定时任务搞挂才是事故。
+
 **Q：踩过什么坑？**
 
 1. **brokerIP1**：Broker 注册到 NameServer 的默认地址是容器内网 IP（172.x），宿主机应用拿到路由也连不上。broker.conf 里 `brokerIP1=127.0.0.1`，配合 compose 端口映射，宿主机连 localhost:10911 才通——Docker 跑 RocketMQ 的第一大坑（同款问题：Kafka 的 advertised.listeners、ES 的 network.publish_host）
 2. **onMessage 不能抛受检异常**：RocketMQListener.onMessage 签名不带 throws，processDocumentOnce 的受检异常只能 catch 后包成 RuntimeException 上抛。注意这不是"吞异常"——wrap 后照样逃逸出方法，Broker 照样重投；真正要防的是 catch 完不上抛，那等于告诉 MQ"消费成功"，重投机制就废了
+3. **163 邮箱 535 认证失败**：password 必须填"授权码"（163 后台开启 POP3/SMTP 后生成，只在生成时显示一次），不是登录密码；from 必须与认证账号完全一致否则服务端 554 拒收；授权码务必复制粘贴，手敲极易把 0 和 O 看混。另：Actuator 的 mail 健康检查会用配置凭证真连一次 SMTP——没配邮箱的环境要把 `management.health.mail.enabled` 跟着告警开关关掉，否则每次启动刷 535 WARN 且 health 显示 DOWN（本项目用 `${rag.alert.enabled}` 属性引用联动，不另设开关）
 
 ---
 
@@ -398,6 +422,7 @@ MQ 是至少一次（at-least-once）投递：消费成功但 ACK 失败、生�
 | 关系数据库 | MySQL 8.0 |
 | 缓存/会话 | Redis 7 |
 | 消息队列 | RocketMQ 5.x（文档异步处理） |
+| 告警通知 | 163 SMTP 邮件（超时对账汇总告警，未配置自动关闭） |
 | 认证授权 | Sa-Token + RBAC 五表模型 |
 | 服务保护 | Resilience4j（熔断） + Guava RateLimiter（限流） |
 | 可观测性 | Langfuse |
