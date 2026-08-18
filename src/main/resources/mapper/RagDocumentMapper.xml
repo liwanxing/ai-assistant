@@ -46,6 +46,13 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 卡死对账扫描：PROCESSING 超时仍未出结果。update_time 在 updateStatus 时刷新， -->
+    <!-- 正常处理（含 16 次重投全程约 4.6h）期间不会静止超过 timeout-hours，静止了就是无人认领 -->
+    <select id="selectStuckProcessing" resultMap="RagDocumentResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM rag_document
+        WHERE status = 'PROCESSING' AND deleted = 0 AND update_time &lt; #{before}
+    </select>
+
     <update id="deleteById">
         UPDATE rag_document SET deleted = 1 WHERE id = #{id}
     </update>

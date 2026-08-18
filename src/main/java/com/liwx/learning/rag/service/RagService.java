@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -99,6 +101,29 @@ public class RagService {
         String msg = errorMessage != null && errorMessage.length() > 500
                 ? errorMessage.substring(0, 500) : errorMessage;
         ragDocumentMapper.updateStatus(documentId, "FAILED", 0, msg);
+    }
+
+    /**
+     * 【对账路径】扫描卡死的 PROCESSING 文档并统一标 FAILED（DocumentTimeoutTask 定时触发）。
+     * 负责兑底"无人认领"的三类场景：消息重投耗尽进死信没人管、@Async 任务随重启丢失、应用处理中途崩溃——
+     * 它们的共同终点是状态永远停在 PROCESSING，唯一活证据就是这条数据库记录，只能靠定时对账收尸
+     *
+     * @param before 判死水位线：update_time 早于此时间仍在 PROCESSING 的记录
+     * @return 本次判死的文档清单（调用方用它组装告警邮件；空列表 = 一切正常）
+     */
+    public List<RagDocument> failStuckProcessing(LocalDateTime before) {
+        List<RagDocument> stuck = ragDocumentMapper.selectStuckProcessing(before);
+        if (stuck.isEmpty()) {
+            return stuck;
+        }
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        for (RagDocument doc : stuck) {
+            markFailed(doc.getId(), "处理超时（疑似消息进死信或服务中断），请重新上传或人工排查");
+            log.error("文档处理超时已标 FAILED, documentId={}, fileName={}, 停滞于 {}",
+                    doc.getId(), doc.getFileName(), doc.getUpdateTime() != null ? doc.getUpdateTime().format(fmt) : "未知");
+        }
+        log.warn("对账扫描：{} 个文档卡死已统一标 FAILED", stuck.size());
+        return stuck;
     }
 
     /**

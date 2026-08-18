@@ -172,6 +172,13 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- 邮件发送（告警通知用）：JavaMailSender 自动配置，163 邮箱 SMTP 发信 -->
+		<!-- 账号与授权码在 application-local.yml（不进 git），开关 rag.alert.enabled 控制 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
 		<!-- Resilience4j 熔断器：防止外部服务故障级联拖垮整个应用 -->
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>

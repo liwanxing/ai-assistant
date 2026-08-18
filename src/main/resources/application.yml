@@ -108,6 +108,21 @@ spring:
       port: 6379
       password: ${REDIS_PASSWORD:123456}
 
+  # 邮件发送（告警通知用）：163 邮箱 SMTP。host/port 不敏感直接写死；
+  # username 是邮箱地址、password 是授权码（不是登录密码！163 后台开启 SMTP 后生成），
+  # 真实值放 application-local.yml（不进 git）；没配时 rag.alert.enabled 保持 false 即可，
+  # JavaMailSender 照常创建但没人调它，不影响启动
+  mail:
+    host: smtp.163.com
+    port: 465                       # 465 走 SSL（25 是明文，很多云厂商封了）
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: true    # 465 端口必须开 SSL
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000      # 告警邮件卡住不能拖垮定时任务线程，超时烧断
+
 # OpenTelemetry OTLP导出：把 Micrometer trace 发到 Langfuse
 management:
   tracing:
@@ -118,6 +133,12 @@ management:
       endpoint: ${LANGFUSE_OTEL_ENDPOINT:https://jp.cloud.langfuse.com/api/otel/v1/traces}
       headers:
         Authorization: Basic ${LANGFUSE_OTEL_AUTH:}
+  # 邮件健康检查跟随告警开关（直接引用上面的属性，不再另设环境变量）：
+  # 没配邮箱时告警关闭，健康检查也关——否则 Actuator 拿空凭证连 smtp.163.com
+  # 认证失败，每次启动刷 535 WARN 且 health 显示 DOWN（不影响业务，但很吓人）
+  health:
+    mail:
+      enabled: ${rag.alert.enabled}
 
 # 高德天气 API（WeatherTool 用）
 # 申请地址：https://lbs.amap.com/ → 控制台 → 应用管理 → 创建 Key（选 Web服务）
@@ -163,6 +184,18 @@ rag:
     enabled: ${RAG_MQ_ENABLED:true}
     topic: rag-document-process       # 消息 Topic（broker.conf 开了 autoCreateTopicEnable，无需手动建）
     consumer-group: rag-doc-group     # 消费者组：同一组内消息只被一个实例消费（集群模式）
+  # 文档处理超时对账：状态停在 PROCESSING 超过 timeout-hours 仍未出结果，说明
+  # 任务已无人认领（消息进死信没人管 / @Async 重启丢任务 / 应用中途崩溃），
+  # 定时扫描统一标 FAILED 并发邮件告警（DocumentTimeoutTask）
+  document-timeout:
+    enabled: ${RAG_DOC_TIMEOUT_ENABLED:true}
+    timeout-hours: 6     # 必须 > 16 次重投全程（约 4.6h），否则 MQ 还在重试就被判死，会出现 FAILED→SUCCESS 状态翻转
+    cron: "0 30 * * * ?" # 每小时第 30 分钟跑（错开整点，避免与其他任务挤同一线程时间片）
+  # 告警邮件开关与收件人：没配 163 授权码时保持 false（发送会直接跳过，只留日志）
+  # 环境变量命名规则同全项目：配置键全大写、点号换下划线（rag.alert.enabled → RAG_ALERT_ENABLED）
+  alert:
+    enabled: ${RAG_ALERT_ENABLED:false}
+    mail-to: ${RAG_ALERT_MAIL_TO:}      # 收件邮箱，逗号分隔可多个（可以就是发件的 163 邮箱自己）
   # 历史数据定时清理：超过保留期的会话四件套整删（消息+摘要+聊天图片+会话记录），不留孤儿
   # 触发在 HistoryCleanupTask（@Scheduled），逻辑在 SessionCleanupService
   cleanup:
