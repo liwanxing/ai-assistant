@@ -4,6 +4,7 @@ import com.liwx.learning.rag.enums.SplitStrategy;
 import com.liwx.learning.rag.service.RagService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.apache.rocketmq.spring.support.RocketMQHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
@@ -49,7 +50,9 @@ public class DocumentProcessProducer {
         }
 
         try {
-            rocketMQTemplate.syncSend(topic, MessageBuilder.withPayload(message).build());
+            // KEYS 设为 documentId：Dashboard 按消息 Key 搜轨迹，能直接定位"这个文档的消息卡在哪"（重投/死信排查）
+            rocketMQTemplate.syncSend(topic, MessageBuilder.withPayload(message)
+                    .setHeader(RocketMQHeaders.KEYS, documentId).build());
             log.info("文档处理消息已发送, documentId={}, topic={}", documentId, topic);
         } catch (Exception e) {
             log.warn("MQ 发送失败，降级 @Async, documentId={}, error={}", documentId, e.getMessage());

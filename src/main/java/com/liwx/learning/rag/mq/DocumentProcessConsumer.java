@@ -1,6 +1,7 @@
 package com.liwx.learning.rag.mq;
 
 import com.liwx.learning.rag.enums.SplitStrategy;
+import com.liwx.learning.rag.exception.DocumentParseException;
 import com.liwx.learning.rag.service.RagService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -14,7 +15,9 @@ import org.springframework.stereotype.Component;
  * 重试与死信（可靠性核心，注意与 @Async 应用层重试是两套机制）：
  * - onMessage 抛异常 → 消费失败，Broker 按延迟级别自动重投（默认最多 16 次，间隔递增）
  * - 16 次耗尽 → 消息进死信 Topic（%DLQ%消费者组），RocketMQ Dashboard 可查、可人工重发
- * - 消费端不吞异常：catch 了等于告诉 MQ "消费成功"，Broker 的重投机制就废了
+ * - 消费端不吞【暂时性】异常：catch 了等于告诉 MQ "消费成功"，Broker 的重投机制就废了；
+ *   唯一例外是 DocumentParseException（文件损坏/加密/不存在，重试也不会好）：
+ *   有意吞掉并当场标 FAILED——毒消息 1 秒出结果，而不是空转 16 次重投（约 5 小时）才进死信
  *
  * 幂等：至少一次投递意味着可能重复消费，由 RagService 的幂等清理兜住（先删旧 chunk 再写）
  *
@@ -49,8 +52,14 @@ public class DocumentProcessConsumer implements RocketMQListener<DocumentProcess
                     message.documentId(),
                     message.filePath(),
                     SplitStrategy.valueOf(message.splitStrategy()));
+        } catch (DocumentParseException e) {
+            // 确定性失败（文件坏了）：当场标 FAILED 后正常返回——正常返回 = ACK = 消费成功，
+            // 不重投、不进死信。不这么做的话毒消息要空转 16 次重投（约 5 小时），文档一直转圈
+            log.error("文档解析失败（不可恢复），跳过重试直接标 FAILED, documentId={}, error={}",
+                    message.documentId(), e.getMessage());
+            ragService.markFailed(message.documentId(), e.getMessage());
         } catch (Exception e) {
-            // 包装后照样上抛（不是吞异常）：onMessage 签名不带 throws 只能抛 RuntimeException；
+            // 暂时性失败：包装后照样上抛（不是吞异常）：onMessage 签名不带 throws 只能抛 RuntimeException；
             // 异常逃逸出本方法 = 告诉 Broker 消费失败 → 重投 → 耗尽进死信（类注释的可靠性链路）
             throw new RuntimeException("文档处理失败: documentId=" + message.documentId(), e);
         }

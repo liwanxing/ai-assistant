@@ -3,6 +3,7 @@ package com.liwx.learning.rag.service;
 import com.liwx.learning.ai.advisor.core.SemanticCacheStore;
 import com.liwx.learning.rag.entity.RagDocument;
 import com.liwx.learning.rag.enums.SplitStrategy;
+import com.liwx.learning.rag.exception.DocumentParseException;
 import com.liwx.learning.rag.mapper.RagChunkMapper;
 import com.liwx.learning.rag.mapper.RagDocumentMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +90,18 @@ public class RagService {
     }
 
     /**
+     * 标记文档处理失败：快速失败路径（确定性解析失败）与 @Async 重试耗尽时调用，
+     * 不让状态永远停在 PROCESSING（前端会一直转圈）
+     */
+    public void markFailed(Long documentId, String errorMessage) {
+        // error_message 列是 VARCHAR(500)：异常链拼接的信息可能超长，
+        // MySQL 8 严格模式下超长直接报错——截断保证“标失败”这个动作本身不会失败
+        String msg = errorMessage != null && errorMessage.length() > 500
+                ? errorMessage.substring(0, 500) : errorMessage;
+        ragDocumentMapper.updateStatus(documentId, "FAILED", 0, msg);
+    }
+
+    /**
      * 【降级路径】@Async + 应用层重试：MQ 不可用 / 发送失败时由 Producer 兕底调用。
      * 这套内存重试与 MQ 的消费重投是两套机制——这里补的是"任务丢了没人管"的下限，
      * 可靠性上限（持久化 + 16 次重投 + 死信）在 MQ 那条路
@@ -103,6 +116,13 @@ public class RagService {
                 processDocumentOnce(documentId, filePath, splitStrategy);
                 return;
 
+            } catch (DocumentParseException e) {
+                // 确定性失败：与 MQ 路径对称，秒判 FAILED 不重试——
+                // 文件在磁盘上不会自己变好，sleep 5 秒再试拿到的还是同一个必然失败的结果
+                log.error("文档解析失败（不可恢复），跳过重试, documentId={}, error={}", documentId, e.getMessage());
+                markFailed(documentId, e.getMessage());
+                return;
+
             } catch (Exception e) {
                 log.warn("文档处理失败, documentId={}, attempt={}/{}, error={}",
                         documentId, attempt, maxAttempts, e.getMessage());
@@ -114,13 +134,13 @@ public class RagService {
                         Thread.sleep(retryDelayMs);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        ragDocumentMapper.updateStatus(documentId, "FAILED", 0, "线程被中断");
+                        markFailed(documentId, "线程被中断");
                         return;
                     }
                 } else {
                     // 最后一次也失败了，标记为 FAILED
                     log.error("文档处理最终失败, documentId={}", documentId, e);
-                    ragDocumentMapper.updateStatus(documentId, "FAILED", 0, e.getMessage());
+                    markFailed(documentId, e.getMessage());
                 }
             }
         }
@@ -149,8 +169,18 @@ public class RagService {
         // 如果文档格式较差（扫描件或无段落结构），用户可在上传时选择「语义切分」来弥补，
         // 语义切分不依赖格式，通过 embedding 相似度自动识别话题边界，代价是多耗一些 API 调用。
         // 早期 RAG 需要复杂的 PDF 结构化解析（提取标题层级、字号、版面布局），有了语义切分后这些方案已被淘汰。
-        TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
-        List<Document> documents = reader.get();
+        // 异常分类边界只圈这一步：读的是磁盘上的静态文件，失败即确定性（损坏/加密/不存在），
+        // 重试不可能变好；后面 embedding/Milvus/MySQL 都是网络调用，失败视为暂时性，交给上层重试
+        List<Document> documents;
+        try {
+            TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(filePath));
+            documents = reader.get();
+        } catch (Exception e) {
+            // 读文件失败 → 统一包成自定义异常抛出（相当于打上"确定性失败"标签）：
+            // 上层（Consumer / @Async 重试循环）按异常类型识别——catch 到它就直接标 FAILED，
+            // 不重试、不进死信；其他异常照旧上抛走 Broker 重投
+            throw new DocumentParseException("文件解析失败: " + e.getMessage(), e);
+        }
 
         // 2. 根据策略切分
         List<Document> chunks;
