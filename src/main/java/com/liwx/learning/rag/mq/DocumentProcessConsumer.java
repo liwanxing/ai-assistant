@@ -5,6 +5,7 @@ import com.liwx.learning.rag.service.RagService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,9 +20,14 @@ import org.springframework.stereotype.Component;
  *
  * topic / consumerGroup 用 ${} 占位符从 yml 读：rocketmq-spring 支持注解属性占位符，
  * 配置集中在 application.yml（rag.mq.*），改 Topic 不用动代码
+ *
+ * 开关联动：@ConditionalOnProperty 跟随 rag.mq.enabled（与 Producer 的降级开关同源）。
+ * 没有它，设 false 时只是生产端不发消息，消费容器照样启动、连不上 NameServer 无限重连刷日志——
+ * 开关只关一半。matchIfMissing=true：配置缺失时默认开，与 yml 里 ${RAG_MQ_ENABLED:true} 的默认值一致
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "rag.mq.enabled", havingValue = "true", matchIfMissing = true)
 @RocketMQMessageListener(
         topic = "${rag.mq.topic}",
         consumerGroup = "${rag.mq.consumer-group}"
