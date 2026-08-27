@@ -1,6 +1,6 @@
-# liwanxing-learning-projects
+# ai-assistant
 
-[![CI](https://github.com/liwanxing/liwanxing-learning-projects/actions/workflows/ci.yml/badge.svg)](https://github.com/liwanxing/liwanxing-learning-projects/actions/workflows/ci.yml)
+[![CI](https://github.com/liwanxing/ai-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/liwanxing/ai-assistant/actions/workflows/ci.yml)
 
 基于 **Spring Boot 4 + Spring AI 2.0** 的企业级智能助手，完整覆盖 LLM 应用工程的核心链路：Agent 工具调用、RAG 质量优化、多层记忆、语义缓存、MCP 双向互通、可观测性与数据生命周期管理。
 
@@ -143,7 +143,7 @@
 ## 后端模块结构
 
 ```
-com.liwx.learning
+com.liwx.aiassistant
 ├─ agent/   编排层：对话入口、AiClientService、工具池（tool/）、MCP 客户端
 ├─ ai/      对话能力层：advisor/（壳：记忆注入/摘要压缩/语义缓存/Langfuse）+
 │           advisor/core/（芯：核心逻辑 + 记忆读写装饰器）
@@ -196,7 +196,7 @@ docker compose up -d
 
 ### 3. 启动后端
 
-IDEA 运行 `LiwanxingLearningProjectsApplication`，或：
+IDEA 运行 `AiAssistantApplication`，或：
 
 ```bash
 .\mvnw.cmd spring-boot:run

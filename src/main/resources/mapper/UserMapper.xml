@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.liwx.learning.user.mapper.UserMapper">
+<mapper namespace="com.liwx.aiassistant.user.mapper.UserMapper">
 
-    <resultMap id="UserResultMap" type="com.liwx.learning.user.entity.User">
+    <resultMap id="UserResultMap" type="com.liwx.aiassistant.user.entity.User">
         <id property="id" column="id"/>
         <result property="username" column="username"/>
         <result property="password" column="password"/>

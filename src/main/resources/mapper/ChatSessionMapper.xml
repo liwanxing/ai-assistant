@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.liwx.learning.ai.mapper.ChatSessionMapper">
+<mapper namespace="com.liwx.aiassistant.chat.mapper.ChatSessionMapper">
 
-    <resultMap id="ChatSessionResultMap" type="com.liwx.learning.ai.entity.ChatSession">
+    <resultMap id="ChatSessionResultMap" type="com.liwx.aiassistant.chat.entity.ChatSession">
         <id property="id" column="id"/>
         <result property="sessionId" column="session_id"/>
         <result property="title" column="title"/>

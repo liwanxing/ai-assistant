@@ -33,7 +33,7 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "123456"
-      MYSQL_DATABASE: liwx_learning
+      MYSQL_DATABASE: ai_assistant
       TZ: Asia/Shanghai
     volumes:
       - mysql_data:/var/lib/mysql
@@ -210,7 +210,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: liwanxing-learning-projects-app:latest
+    image: ai-assistant-app:latest
     container_name: app
     ports:
       - "8080:8080"
@@ -227,7 +227,7 @@ services:
         condition: service_started   # 只等启动不等就绪：Broker 完整注册要几秒，MQ 客户端连不上会自动重连
     environment:
       # 用 Docker 服务名替换 localhost（容器间通过 Docker 内部 DNS 互访）
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: "123456"
       SPRING_DATA_REDIS_HOST: redis
@@ -260,7 +260,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: liwanxing-learning-projects-frontend:latest
+    image: ai-assistant-frontend:latest
     container_name: frontend
     ports:
       - "8081:80"

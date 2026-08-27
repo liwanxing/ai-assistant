@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.liwx.learning.ai.mapper.UserMemoryMapper">
+<mapper namespace="com.liwx.aiassistant.chat.mapper.UserMemoryMapper">
 
-    <resultMap id="UserMemoryResultMap" type="com.liwx.learning.ai.entity.UserMemory">
+    <resultMap id="UserMemoryResultMap" type="com.liwx.aiassistant.chat.entity.UserMemory">
         <id property="id" column="id"/>
         <result property="userId" column="user_id"/>
         <result property="content" column="content"/>
@@ -16,7 +16,7 @@
     </select>
 
     <!-- useGeneratedKeys：insert 后把自增 ID 回填到 userMemory.id，这个 ID 同时作为 Milvus document ID -->
-    <insert id="insert" parameterType="com.liwx.learning.ai.entity.UserMemory"
+    <insert id="insert" parameterType="com.liwx.aiassistant.chat.entity.UserMemory"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_memory (user_id, content) VALUES (#{userId}, #{content})
     </insert>

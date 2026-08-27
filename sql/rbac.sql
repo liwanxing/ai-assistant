@@ -3,7 +3,7 @@
 -- 包含 5 张表 + 测试数据，可在 DBeaver 中直接执行
 -- =============================================
 
-USE liwx_learning;
+USE ai_assistant;
 
 -- 先删后建（方便重复执行，按依赖顺序倒着删）
 DROP TABLE IF EXISTS sys_role_permission;

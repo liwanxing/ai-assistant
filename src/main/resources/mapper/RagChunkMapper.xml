@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.liwx.learning.rag.mapper.RagChunkMapper">
+<mapper namespace="com.liwx.aiassistant.rag.mapper.RagChunkMapper">
 
     <!-- 批量插入：一次 INSERT 多行，比循环单条插入快得多 -->
     <insert id="batchInsert">

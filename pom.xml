@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.liwx</groupId>
-	<artifactId>liwanxing-learning-projects</artifactId>
+	<artifactId>ai-assistant</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name/>
 	<description/>

@@ -20,7 +20,7 @@
 
     <!-- ====== 属性变量，下面引用 ====== -->
     <property name="LOG_PATH" value="logs"/>
-    <property name="APP_NAME" value="liwx-learning"/>
+    <property name="APP_NAME" value="ai-assistant"/>
     <!-- 日志格式：时间 级别 线程 类名 行号 - 消息 -->
     <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
 
@@ -38,7 +38,7 @@
         <file>${LOG_PATH}/${APP_NAME}.log</file>
         <!-- 滚动策略：按天切，最多保留 30 天 -->
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <!-- 文件名格式：liwx-learning.2026-08-09.log -->
+            <!-- 文件名格式：ai-assistant.2026-08-09.log -->
             <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
@@ -73,9 +73,9 @@
             <appender-ref ref="ERROR_FILE"/> <!-- 同时输出到错误日志文件 -->
         </root>
         <!-- 自己项目的包设成 DEBUG，开发时能看到更详细的日志 -->
-        <logger name="com.liwx.learning" level="DEBUG"/>
+        <logger name="com.liwx.aiassistant" level="DEBUG"/>
         <!-- MyBatis 的 SQL 日志（DEBUG 级别才能看到 SQL 语句） -->
-        <logger name="com.liwx.learning.mapper" level="DEBUG"/>
+        <logger name="com.liwx.aiassistant.mapper" level="DEBUG"/>
         <!-- Spring AI：完整 DEBUG，能看到发给大模型的 HTTP 请求体（含 tools 定义）、工具调用过程 -->
         <logger name="org.springframework.ai" level="DEBUG"/>
         <!-- MCP 协议调试：看 MCP Client 是否启动、是否连接到 MCP Server -->
@@ -93,8 +93,8 @@
             <appender-ref ref="ERROR_FILE"/> <!-- 同时输出到错误日志文件 -->
         </root>
         <!-- 线上不需要 DEBUG，INFO 就够 -->
-        <logger name="com.liwx.learning" level="INFO"/>
-        <logger name="com.liwx.learning.mapper" level="INFO"/>
+        <logger name="com.liwx.aiassistant" level="INFO"/>
+        <logger name="com.liwx.aiassistant.mapper" level="INFO"/>
     </springProfile>
 
 </configuration>

@@ -14,7 +14,7 @@
 ```bash
 # 1. 切到后端项目根目录（frontend 会在根目录下生成）
 #    命令在哪个目录执行，就在哪个目录下面生成 frontend 文件夹
-cd D:\Code\liwanxing-learning-projects
+cd D:\Code\ai-assistant
 
 # 2. 用 Vite 官方模板生成 Vue 3 项目
 #    --template vue 指定使用 Vue 模板，跳过交互式选择
@@ -57,7 +57,7 @@ frontend/
 │   ├── favicon.svg
 │   └── icons.svg
 └── src/                    # 前端源码
-    ├── main.js             # 前端启动入口（类似后端的 LearningApplication）
+    ├── main.js             # 前端启动入口（类似后端的 AiAssistantApplication）
     ├── App.vue             # 根组件（所有页面都挂在这下面）
     ├── style.css           # 全局样式
     ├── assets/             # 图片等资源（会被 Vite 编译处理）

@@ -1,6 +1,6 @@
 spring:
   application:
-    name: liwanxing-learning-projects
+    name: ai-assistant
 
   # 文件上传限制：默认 1MB，PDF/Word 文档通常较大，调到 50MB
   servlet:
@@ -61,7 +61,7 @@ spring:
       # 与上面的 client 共存：本项目既消费别人的 MCP 工具，也对外提供自己的 MCP 工具
       server:
         enabled: true
-        name: liwx-learning-mcp-server      # MCP Server 名称，客户端工具列表里显示的名字
+        name: ai-assistant-mcp-server      # MCP Server 名称，客户端工具列表里显示的名字
         version: 0.0.1
         type: SYNC                          # 同步服务器：工具方法是阻塞式，与 WebMVC 线程模型匹配
         # STREAMABLE：新版 MCP 传输标准（HTTP POST + 可选 SSE 下行），取代旧 SSE 传输（旧方式每个客户端长占一个连接，太耗服务器资源）
@@ -96,7 +96,7 @@ spring:
   # password 用占位符，本地默认 123456，线上用环境变量注入
   datasource:
     # allowPublicKeyRetrieval=true：MySQL 8.0 默认用 caching_sha2_password 认证，需要这个参数才能连上
-    url: jdbc:mysql://localhost:3306/liwx_learning?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/ai_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -153,7 +153,7 @@ amap:
 rocketmq:
   name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
   producer:
-    group: liwx-learning-producer    # 生产者组（事务消息回查按组名路由，普通消息仅作标识）
+    group: ai-assistant-producer    # 生产者组（事务消息回查按组名路由，普通消息仅作标识）
     send-message-timeout: 5000       # 同步发送超时（毫秒）
 
 # RAG 文档上传配置
@@ -228,7 +228,7 @@ springdoc:
     tags-sorter: alpha          # 接口标签按字母排序
   api-docs:
     path: /v3/api-docs
-  packages-to-scan: com.liwx.learning
+  packages-to-scan: com.liwx.aiassistant
   # 默认给所有接口加上 200 响应的 Result 包装说明
   override-with-generic-response: true
 
@@ -242,7 +242,7 @@ knife4j:
 mybatis:
   mapper-locations: classpath:mapper/*.xml
   # XML 里都写全限定名，这里只是别名兜底；ai.entity 是目录重组后新加的域
-  type-aliases-package: com.liwx.learning.user.entity,com.liwx.learning.rag.entity,com.liwx.learning.ai.entity
+  type-aliases-package: com.liwx.aiassistant.user.entity,com.liwx.aiassistant.rag.entity,com.liwx.aiassistant.chat.entity
   configuration:
     map-underscore-to-camel-case: true
 

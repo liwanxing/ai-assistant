@@ -3,7 +3,7 @@
 -- 记录用户上传的文档元信息，Milvus 存向量，MySQL 存文档状态
 -- =============================================
 
-USE liwx_learning;
+USE ai_assistant;
 
 DROP TABLE IF EXISTS rag_document;
 

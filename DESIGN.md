@@ -203,7 +203,7 @@ MessageWindowChatMemory 默认把"存多少"和"模型看多少"绑死：maxMess
 
 `@Aspect` 切面拦截所有 Controller 方法，环绕通知记录：方法名、入参、耗时、异常信息。不侵入业务代码，一个注解搞定。
 
-用 `@Around("execution(* com.liwx.learning..controller..*.*(..))")` 切所有 Controller 包下的方法。
+用 `@Around("execution(* com.liwx.aiassistant..controller..*.*(..))")` 切所有 Controller 包下的方法。
 
 ---
 
