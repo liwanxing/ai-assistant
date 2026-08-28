@@ -40,6 +40,8 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 
 	/** 质检阈值：最终回答少于这个字数视为不合格，触发重发。体验用，随手改 */
 	private static final int MIN_ANSWER_LENGTH = 230;
+	/** 最大质检重发次数，防止无限重试 */
+	private static final int MAX_RETRIES = 2;
 
 	/**
 	 * 当轮请求：doBeforeCall 存、doAfterCall 重发时取。
@@ -47,8 +49,8 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	 */
 	private final ThreadLocal<ChatClientRequest> currentRequest = new ThreadLocal<>();
 
-	/** 重发标记：最多重发一次，防止"不合格 → 重发 → 还不合格 → 再重发"死循环 */
-	private final ThreadLocal<Boolean> retried = new ThreadLocal<>();
+	/** 质检重发计数器：记录当前请求已重发次数，达到 MAX_RETRIES 则不再重发 */
+	private final ThreadLocal<Integer> retryCount = new ThreadLocal<>();
 
 	/** 轮次计数：只为了日志好读 */
 	private final ThreadLocal<Integer> round = new ThreadLocal<>();
@@ -67,6 +69,7 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest,
 			CallAdvisorChain callAdvisorChain) {
 		round.set(0);
+		retryCount.set(0);
 		log.info("[质检Advisor] 工具调用循环开始（每请求一次）");
 		return chatClientRequest;
 	}
@@ -101,9 +104,10 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		log.info("[质检Advisor] 第 {} 轮为最终回答（{} 字）：{}", currentRound(),
 				text == null ? 0 : text.length(), text);
 
-		if (text != null && text.length() < MIN_ANSWER_LENGTH && !Boolean.TRUE.equals(retried.get())) {
-			retried.set(Boolean.TRUE);
-			log.warn("[质检Advisor] 回答太短（不足 {} 字），带\"重调工具\"指令重发一次", MIN_ANSWER_LENGTH);
+		int retries = retryCount.get() == null ? 0 : retryCount.get();
+		if (text != null && text.length() < MIN_ANSWER_LENGTH && retries < MAX_RETRIES) {
+			retryCount.set(retries + 1);
+			log.warn("[质检Advisor] 回答太短（不足 {} 字），第 {} 次质检重发（上限 {}）", MIN_ANSWER_LENGTH, retries + 1, MAX_RETRIES);
 			return resendWithFeedback(chatClientResponse, callAdvisorChain, text);
 		}
 		return chatClientResponse;
@@ -206,7 +210,7 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 
 	private void cleanup() {
 		currentRequest.remove();
-		retried.remove();
+		retryCount.remove();
 		round.remove();
 	}
 
