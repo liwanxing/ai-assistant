@@ -12,6 +12,7 @@ import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -117,13 +118,17 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	}
 
 	/**
-	 * 重发：从当轮对话历史里翻出最近一次工具调用（工具名+参数），排进"相同参数重调工具"的指令追加到历史末尾，
-	 * 再 chain.copy(this).nextCall() 调一次 LLM。
-	 * copy(this) 与父类循环内的调用方式完全一致：排除自己后直达下游的 ChatModelCallAdvisor，
-	 * 不会重穿记忆/缓存等外层 Advisor（它们在洋葱更外层，本来就该对重发无感），也不会递归回本类
+	 * 重发：先删掉历史里最近一次工具调用交换，再追加"重新调工具"指令，然后 chain.copy(this).nextCall() 调一次 LLM。
 	 *
-	 * 关键衔接：重发响应若带 ToolCall，doAfterCall 原样返回 → 父类 do-while 判定 isToolCall=true
-	 * → ToolCallingManager 自动重新执行工具（相同参数）→ 结果拼进历史 → 下一轮生成新回答
+	 * 为什么必须删旧记录：历史里留着旧工具结果时，模型倾向于直接拿旧数据重新作答（纯文本响应），
+	 * do-while 判定 isToolCall=false 直接退出，永远进不了下一轮。
+	 * 删掉后模型手里没数据，只能重新发起工具调用——这是让 do-while 真正多走一轮的关键。
+	 *
+	 * copy(this) 与父类循环内的调用方式完全一致：排除自己后直达下游的 ChatModelCallAdvisor，
+	 * 不会重穿记忆/缓存等外层 Advisor，也不会递归回本类。
+	 *
+	 * 关键衔接：重发响应带 ToolCall → doAfterCall 原样返回 → 父类 do-while 判定 isToolCall=true
+	 * → ToolCallingManager 自动重新执行工具 → 结果拼进历史 → 下一轮生成新回答
 	 */
 	private ChatClientResponse resendWithFeedback(ChatClientResponse original, CallAdvisorChain chain,
 			String shortText) {
@@ -133,16 +138,16 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		}
 
 		List<Message> retryInstructions = new ArrayList<>(lastRequest.prompt().getInstructions());
-		String lastToolCall = findLastToolCall(retryInstructions);
+		String lastToolCall = removeLastToolCallExchange(retryInstructions);
 		String feedback;
 		if (lastToolCall != null) {
-			// 调过工具：指令点名工具名+参数，要求重调拿新数据再重新作答
+			// 调过工具：删了旧记录，指令让模型重新调工具拿新数据再作答
 			feedback = "你刚才的回答是\"" + shortText + "\"，质检不满意。"
-					+ "请用与之前完全相同的参数重新调用 " + lastToolCall
-					+ " 获取最新数据，然后基于新的工具结果重新回答。";
+					+ "请重新调用 " + lastToolCall
+					+ " 获取最新实时数据，然后基于工具结果重新回答。";
 		}
 		else {
-			// 没调过工具（纯闲聊回答）：退化为要求重答
+			// 没调过工具（纯闲聊回答）：无记录可删，退化为要求重答
 			feedback = "你刚才的回答是\"" + shortText + "\"，太简短了。请重新给出更完整、更详细的回答。";
 		}
 		retryInstructions.add(new UserMessage(feedback));
@@ -169,16 +174,26 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	}
 
 	/**
-	 * 从对话历史反向找最近一次工具调用：返回 "工具名(参数JSON)" 描述，没调过工具返回 null。
-	 * 工具调用请求挂在 AssistantMessage 的 toolCalls 上（模型返回的"我要调这个工具"消息）
+	 * 从历史里删除最近一次工具调用交换：带 toolCalls 的 AssistantMessage（模型的"我要调这个工具"消息）
+	 * + 其后紧接的 ToolResponseMessage（工具结果消息，一次请求多个工具时有多条）。
+	 * 返回被删除调用的 "工具名(参数JSON)" 描述，没调过工具返回 null（不删除任何消息）。
+	 *
+	 * 工具调用记录长这样（成对出现，不能只删一半，孤儿消息会让 API 报错）：
+	 *   [... assistant(toolCalls=[getWeather]) , toolResponse(天气数据) , assistant(最终回答)...]
 	 */
-	private String findLastToolCall(List<Message> instructions) {
+	private String removeLastToolCallExchange(List<Message> instructions) {
 		for (int i = instructions.size() - 1; i >= 0; i--) {
 			Message msg = instructions.get(i);
 			if (msg instanceof AssistantMessage am && am.getToolCalls() != null && !am.getToolCalls().isEmpty()) {
-				return am.getToolCalls().stream()
+				String desc = am.getToolCalls().stream()
 					.map(c -> c.name() + "(" + c.arguments() + ")")
 					.collect(Collectors.joining(", "));
+				// 先记下描述，再删 ToolCall 请求消息 + 后面紧接的全部工具结果消息
+				instructions.remove(i);
+				while (i < instructions.size() && instructions.get(i) instanceof ToolResponseMessage) {
+					instructions.remove(i);
+				}
+				return desc;
 			}
 		}
 		return null;
