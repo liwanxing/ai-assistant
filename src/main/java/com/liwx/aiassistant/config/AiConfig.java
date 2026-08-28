@@ -1,6 +1,7 @@
 package com.liwx.aiassistant.config;
 
 import com.liwx.aiassistant.chat.advisor.ConversationSummaryAdvisor;
+import com.liwx.aiassistant.chat.advisor.QualityCheckToolCallingAdvisor;
 import com.liwx.aiassistant.chat.advisor.SemanticCacheAdvisor;
 import com.liwx.aiassistant.chat.advisor.UserMemoryAdvisor;
 import com.liwx.aiassistant.chat.advisor.core.MediaStrippingChatMemory;
@@ -11,9 +12,11 @@ import com.liwx.aiassistant.chat.advisor.core.UserMemoryService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import com.liwx.aiassistant.chat.advisor.LangfuseAdvisor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -53,6 +56,20 @@ public class AiConfig {
         // 包装一层：多模态消息（含图片）存之前剥离 base64 媒体数据，只保留文本，避免数据库膨胀
         // （此 Bean 在下方 chatClient 里还会被 ReadLimitChatMemory 再包一层，两层嵌套而非替换：本层管写入剥图，那层管读取截断）
         return new MediaStrippingChatMemory(delegate);
+    }
+
+    /**
+     * 用自定义质检版替换默认的 ToolCallingAdvisor（体验用，不玩了删掉这个 Bean 即恢复默认）
+     *
+     * 机制：ChatClientAutoConfiguration 里默认的 ToolCallingAdvisor.Builder 是 @ConditionalOnMissingBean——
+     * 用户容器里出现自己的 Builder Bean 时自动让位，ChatClient.Builder 构建时改用这份。
+     * 注意链上只允许存在一个 ToolAdvisor，所以只能“替换”不能“追加”，不要挂进下面的 defaultAdvisors
+     * ToolCallingManager 由 ToolCallingAutoConfiguration 自动装配，直接注入即可
+     */
+    @Bean
+    public ToolCallingAdvisor.Builder<?> qualityCheckToolCallingAdvisorBuilder(ToolCallingManager toolCallingManager) {
+        return new QualityCheckToolCallingAdvisor.Builder()
+                .toolCallingManager(toolCallingManager);
     }
 
     /**
