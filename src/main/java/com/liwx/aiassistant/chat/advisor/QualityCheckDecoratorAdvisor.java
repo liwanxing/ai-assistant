@@ -1,7 +1,9 @@
 package com.liwx.aiassistant.chat.advisor;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,10 +43,14 @@ public class QualityCheckDecoratorAdvisor implements CallAdvisor {
 	private static final List<String> BAD_RESULT_KEYWORDS = List.of("失败", "不可用", "熔断", "稍后再试");
 
 	/**
-	 * 每次请求最多打回一次，防止"失败→打回→重调→还失败→再打回"死循环。
-	 * Advisor 是单例 Bean，多请求并发共用，ThreadLocal 按线程隔离
+	 * 每次请求最多打回次数：不合格 → 打回重调 → 还不合格 → 还能再打回，达到上限后放行止损。防止死循环
 	 */
-	private final ThreadLocal<Boolean> rejected = new ThreadLocal<>();
+	private static final int MAX_REJECTS = 2;
+
+	/**
+	 * 当前请求已打回次数。Advisor 是单例 Bean，多请求并发共用，ThreadLocal 按线程隔离
+	 */
+	private final ThreadLocal<Integer> rejectCount = new ThreadLocal<>();
 
 	@Override
 	public String getName() {
@@ -67,62 +73,75 @@ public class QualityCheckDecoratorAdvisor implements CallAdvisor {
 		ChatClientRequest processed = inspectToolResults(request);
 		ChatClientResponse response = chain.nextCall(processed);
 
-		// 回程：响应不带 ToolCall 说明是最终回答、整个工具循环即将结束——清理打回标记
+		// 回程：响应不带 ToolCall 说明是最终回答、整个工具循环即将结束——清理打回计数
 		// （循环内每轮都过这，只有最后一轮回程的响应才是纯文本）
 		if (response.chatResponse() == null || !response.chatResponse().hasToolCalls()) {
-			rejected.remove();
+			rejectCount.remove();
 		}
 		return response;
 	}
 
 	/**
-	 * 工具结果质检（去程改写请求）：
-	 * 上一轮的工具交换在历史末尾长这样（A、B、C 一次请求时 toolCalls 里有三个）：
-	 *   [..., user 问题, assistant(toolCalls=[A,B,C]), 工具结果消息(可能一条带三个结果，也可能多条)]
-	 * 不满意的处理：删掉这整段记录、追加"重新调用"指令——模型没有结果可用，只能重新发起调用。
-	 * 取整段删而不是只删失败的：assistant 的 toolCalls 与工具结果必须成对，删一半会因
-	 * tool_call_id 对不上被 API 拒绝；代价是合格的工具也会跟着重调一遍（体验取舍）
+	 * 工具结果质检（去程改写请求）——全量版：
+	 * 扫描整个历史里所有工具交换段（串行调用 A、B、C 各占一段：[assistant(toolCalls), 工具结果]；
+	 * 一轮并行调多个工具共用一段），对本次请求真正调过的每个工具结果逐一质检，
+	 * 全部合格才算过——工具数量动态（这次 3 个下次 4 个）也不影响，查的是"历史上实际发生了的"。
+	 *
+	 * 为什么每轮都全量检查而不是"等全部调完再查"：不需要等——每轮去程都在模型正前方，
+	 * 第 3 轮就能查出第 2 轮 B 的坏结果当场打回，后面的 C、D 不用白跑；
+	 * "所有工具调完"的那一刻也必经本切面（模型拿全部结果生成最终回答的那一轮去程），天然兑底
+	 *
+	 * 不合格的处理：删除所有含不合格工具的交换段、追加点名重调指令——模型没有结果可用，
+	 * 只能重新发起调用。串行场景按段删除互不影响（每段自带配对）；并行段内若有合格工具会陪跑重调
+	 * （assistant 的 toolCalls 与结果必须成对，不能只删一半）
 	 */
 	private ChatClientRequest inspectToolResults(ChatClientRequest request) {
 		List<Message> instructions = request.prompt().getInstructions();
 
-		// 反向扫描：从末尾收集连续的工具结果消息，再往前找对应的 assistant(toolCalls) 消息
-		int exchangeStart = -1;
-		List<ToolResponseMessage.ToolResponse> toolResults = new ArrayList<>();
-		for (int i = instructions.size() - 1; i >= 0; i--) {
-			Message msg = instructions.get(i);
-			if (msg instanceof ToolResponseMessage trm) {
-				toolResults.addAll(0, trm.getResponses());  // addAll(0,...) 反向收集后保持原始顺序
-			}
-			else if (msg instanceof AssistantMessage am && am.getToolCalls() != null && !am.getToolCalls().isEmpty()) {
-				exchangeStart = i;  // 找到工具调用请求消息，扫描结束
-				break;
-			}
-			else {
-				break;  // 中间夹了其他消息（如最终回答）说明不是紧邻末尾的工具交换，不处理
-			}
+		List<ToolSegment> segments = findToolSegments(instructions);
+		if (segments.isEmpty()) {
+			return request;  // 第 1 轮（还没有任何工具结果）
 		}
 
-		if (exchangeStart < 0 || toolResults.isEmpty() || Boolean.TRUE.equals(rejected.get())) {
-			return request;  // 第 1 轮（无工具结果）或已打回过：放行
-		}
-
-		// 质检：A、B、C 任何一个结果命中失败关键词 → 整段打回
-		List<String> badTools = toolResults.stream()
+		// 全量质检：所有段里的所有工具结果（如 4 个数据分析工具，每个都合格才算过）
+		List<String> badTools = segments.stream()
+			.flatMap(seg -> seg.responses().stream())
 			.filter(r -> isBadResult(r.responseData()))
 			.map(ToolResponseMessage.ToolResponse::name)
 			.toList();
 		if (badTools.isEmpty()) {
-			log.info("[装饰器质检] 工具结果合格：{}", toolResults.stream().map(r -> r.name()).toList());
+			log.info("[装饰器质检] 全部工具结果合格：{}",
+					segments.stream().flatMap(seg -> seg.responses().stream()).map(r -> r.name()).toList());
 			return request;
 		}
 
-		rejected.set(Boolean.TRUE);
-		List<Message> cleaned = new ArrayList<>(instructions.subList(0, exchangeStart));  // 删掉整段工具交换
+		int rejects = rejectCount.get() == null ? 0 : rejectCount.get();
+		if (rejects >= MAX_REJECTS) {
+			log.warn("[装饰器质检] 工具结果仍不合格：{}，已达打回上限 {} 次，放行止损", badTools, MAX_REJECTS);
+			return request;
+		}
+		rejectCount.set(rejects + 1);
+
+		// 删除所有含不合格工具的段（并行段内合格工具陪删），重建历史并追加重调指令
+		Set<Integer> removeIndexes = new HashSet<>();
+		for (ToolSegment seg : segments) {
+			if (seg.responses().stream().anyMatch(r -> isBadResult(r.responseData()))) {
+				for (int i = seg.start(); i < seg.end(); i++) {
+					removeIndexes.add(i);
+				}
+			}
+		}
+		List<Message> cleaned = new ArrayList<>();
+		for (int i = 0; i < instructions.size(); i++) {
+			if (!removeIndexes.contains(i)) {
+				cleaned.add(instructions.get(i));
+			}
+		}
 		String feedback = "刚才调用的工具 " + String.join("、", badTools)
-				+ " 返回了异常结果（失败/不可用）。请重新调用这些工具获取数据，然后再回答。";
+				+ " 返回了不合格结果。请重新调用这些工具获取数据，然后再回答。";
 		cleaned.add(new UserMessage(feedback));
-		log.warn("[装饰器质检] 工具结果不合格：{}，删除旧记录并要求重新调用", badTools);
+		log.warn("[装饰器质检] 工具结果不合格：{}，第 {}/{} 次打回，删除相关记录并要求重新调用",
+				badTools, rejects + 1, MAX_REJECTS);
 
 		return ChatClientRequest.builder()
 			.prompt(new Prompt(cleaned, request.prompt().getOptions()))
@@ -130,7 +149,39 @@ public class QualityCheckDecoratorAdvisor implements CallAdvisor {
 			.build();
 	}
 
-	/** 质检标准：结果为空/过短/命中失败关键词都算不满意 */
+	/**
+	 * 扫描整个历史，切出所有工具交换段：
+	 * [start, end)：assistant(toolCalls) 起始，其后紧邻的全部工具结果消息（不含 end）。
+	 * 串行调用 A→B→C 时是三段；一轮并行 [A,B,C] 是一段
+	 */
+	private List<ToolSegment> findToolSegments(List<Message> instructions) {
+		List<ToolSegment> segments = new ArrayList<>();
+		for (int i = 0; i < instructions.size(); i++) {
+			Message msg = instructions.get(i);
+			if (msg instanceof AssistantMessage am && am.getToolCalls() != null && !am.getToolCalls().isEmpty()) {
+				int start = i;
+				List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>();
+				int j = i + 1;
+				while (j < instructions.size() && instructions.get(j) instanceof ToolResponseMessage trm) {
+					responses.addAll(trm.getResponses());
+					j++;
+				}
+				segments.add(new ToolSegment(start, j, responses));
+				i = j - 1;  // 跳过本段（for 的 i++ 会再走一步）
+			}
+		}
+		return segments;
+	}
+
+	/** 历史里一段完整的工具交换：[start, end)，以及段内全部工具结果 */
+	private record ToolSegment(int start, int end, List<ToolResponseMessage.ToolResponse> responses) {
+	}
+
+	/**
+	 * 质检标准：结果为空/命中失败关键词即不合格。
+	 * 想接"80 分/通过标志"类标准：让工具返回 JSON（如 {"passed":true,"score":85}），
+	 * 这里改成解析 JSON 判断字段——判断逻辑与拦截机制完全解耦，随便换
+	 */
 	private boolean isBadResult(String responseData) {
 		if (responseData == null || responseData.isBlank()) {
 			return true;
