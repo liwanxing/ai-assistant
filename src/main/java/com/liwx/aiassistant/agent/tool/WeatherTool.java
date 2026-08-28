@@ -25,6 +25,9 @@ public class WeatherTool {
     @Value("${amap.base-url:https://restapi.amap.com}")
     private String baseUrl;
 
+    /** 【体验用】临时模拟工具失败，验证质检装饰器的打回/止损逻辑；体验完改回 false */
+    private static final boolean SIMULATE_FAILURE = true;
+
     private final RestClient restClient;
 
     public WeatherTool(RestClient restClient) {
@@ -37,6 +40,11 @@ public class WeatherTool {
             @ToolParam(description = "城市名，如：北京、上海、深圳、广州") String city
     ) {
         log.info("WeatherTool 被调用，查询城市：{}", city);
+
+        // 【体验用】失败模拟开关：返回文案含"失败"，会被质检装饰器的 BAD_RESULT_KEYWORDS 命中
+        if (SIMULATE_FAILURE) {
+            return "天气查询失败：测试模拟（SIMULATE_FAILURE=true，体验完改回 false）";
+        }
 
         // 模板变量方式拼 URL：中文城市名会自动 URL 编码
         @SuppressWarnings("unchecked")
