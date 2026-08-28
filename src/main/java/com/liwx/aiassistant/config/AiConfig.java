@@ -1,7 +1,7 @@
 package com.liwx.aiassistant.config;
 
 import com.liwx.aiassistant.chat.advisor.ConversationSummaryAdvisor;
-import com.liwx.aiassistant.chat.advisor.QualityCheckToolCallingAdvisor;
+import com.liwx.aiassistant.chat.advisor.QualityCheckDecoratorAdvisor;
 import com.liwx.aiassistant.chat.advisor.SemanticCacheAdvisor;
 import com.liwx.aiassistant.chat.advisor.UserMemoryAdvisor;
 import com.liwx.aiassistant.chat.advisor.core.MediaStrippingChatMemory;
@@ -66,11 +66,18 @@ public class AiConfig {
      * 注意链上只允许存在一个 ToolAdvisor，所以只能“替换”不能“追加”，不要挂进下面的 defaultAdvisors
      * ToolCallingManager 由 ToolCallingAutoConfiguration 自动装配，直接注入即可
      */
-    @Bean
-    public ToolCallingAdvisor.Builder<?> qualityCheckToolCallingAdvisorBuilder(ToolCallingManager toolCallingManager) {
-        return new QualityCheckToolCallingAdvisor.Builder()
-                .toolCallingManager(toolCallingManager);
-    }
+    // ====== 继承版（替换 ToolCallingAdvisor）：已注释暂停，想切回时取消注释、删掉 chatClient 里的装饰器即可 ======
+    // @Bean
+    // public ToolCallingAdvisor.Builder<?> qualityCheckToolCallingAdvisorBuilder(ToolCallingManager toolCallingManager) {
+    //     return new QualityCheckToolCallingAdvisor.Builder()
+    //             .toolCallingManager(toolCallingManager);
+    // }
+
+    /**
+     * 质检 Advisor（装饰器版）：直接 new 挂进下方 chatClient 的 defaultAdvisors（见 chatClient 方法），
+     * 不要注册成 @Bean——ChatClient 的自动挂载机制只认 ToolCallingAdvisor.Builder<?>，
+     * 普通装饰器 @Bean 并不会自动进链，再在 defaultAdvisors 里 new 一份就是重复误导
+     */
 
     /**
      * 构建 ChatClient：注册多轮对话记忆 + 长期记忆 + 摘要压缩 + 日志
@@ -91,7 +98,8 @@ public class AiConfig {
                         MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
                         new SimpleLoggerAdvisor(),  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
-                        new SemanticCacheAdvisor(semanticCacheStore)// 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。
+                        new SemanticCacheAdvisor(semanticCacheStore),// 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。
+                        new QualityCheckDecoratorAdvisor()  // 装饰器质检：order 在 ToolCallingAdvisor 内层（循环内），每轮去程检查上一轮工具结果，不合格删记录打回重调
                 );
 
         // Langfuse 可观测性：@ConditionalOnProperty 控制 Bean 是否创建

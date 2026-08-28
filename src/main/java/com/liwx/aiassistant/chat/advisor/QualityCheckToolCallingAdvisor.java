@@ -36,35 +36,37 @@ import org.springframework.ai.model.tool.ToolExecutionEligibilityChecker;
  * 若重发后模型直接给了纯文本，循环退出，重发结果成为最终回答。不需要自己写循环控制，这正是继承钩子的好处。
  */
 @Slf4j
-public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 
+
+// ====================================================================
+
+// ====================================================================
+// 继承版：重写 ToolCallingAdvisor 的 doBeforeCall/doAfterCall 钩子实现质检重试
+// 装饰器版见 QualityCheckDecoratorAdvisor.java
+// AiConfig 中的 Bean 已注释，切换时取消注释即可
+// ====================================================================
+public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	/** 质检阈值：最终回答少于这个字数视为不合格，触发重发。体验用，随手改 */
 	private static final int MIN_ANSWER_LENGTH = 230;
 	/** 最大质检重发次数，防止无限重试 */
 	private static final int MAX_RETRIES = 2;
-
 	/**
 	 * 当轮请求：doBeforeCall 存、doAfterCall 重发时取。
 	 * Advisor 是单例 Bean，多请求并发共用，不能用普通成员变量，ThreadLocal 按线程隔离
 	 */
 	private final ThreadLocal<ChatClientRequest> currentRequest = new ThreadLocal<>();
-
 	/** 质检重发计数器：记录当前请求已重发次数，达到 MAX_RETRIES 则不再重发 */
 	private final ThreadLocal<Integer> retryCount = new ThreadLocal<>();
-
 	/** 轮次计数：只为了日志好读 */
 	private final ThreadLocal<Integer> round = new ThreadLocal<>();
-
 	/** 体验版便利构造器：其余参数与默认 ToolCallingAdvisor 完全一致 */
 	public QualityCheckToolCallingAdvisor(ToolCallingManager toolCallingManager) {
 		super(toolCallingManager, DEFAULT_TOOL_EXECUTION_ELIGIBILITY_CHECKER, DEFAULT_ORDER, true);
 	}
-
 	public QualityCheckToolCallingAdvisor(ToolCallingManager toolCallingManager,
 			ToolExecutionEligibilityChecker checker, int advisorOrder, boolean conversationHistoryEnabled) {
 		super(toolCallingManager, checker, advisorOrder, conversationHistoryEnabled);
 	}
-
 	@Override
 	protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest,
 			CallAdvisorChain callAdvisorChain) {
@@ -73,7 +75,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		log.info("[质检Advisor] 工具调用循环开始（每请求一次）");
 		return chatClientRequest;
 	}
-
 	@Override
 	protected ChatClientRequest doBeforeCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
 		// 断点A：每轮调 LLM 前停——工具循环多轮时，消息列表一轮比一轮长（多了工具执行结果）
@@ -83,7 +84,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 				chatClientRequest.prompt().getInstructions().size());
 		return chatClientRequest;
 	}
-
 	@Override
 	protected ChatClientResponse doAfterCall(ChatClientResponse chatClientResponse, CallAdvisorChain callAdvisorChain) {
 		// 断点B：模型的工具决策就在这——中间轮的响应里能看到模型选了哪个工具、传了什么参数
@@ -92,18 +92,15 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 			return chatClientResponse;
 		}
 		AssistantMessage output = chatResponse.getResult().getOutput();
-
 		if (chatResponse.hasToolCalls()) {
 			log.info("[质检Advisor] 第 {} 轮模型决策调用工具：{}", currentRound(),
 					output.getToolCalls().stream().map(c -> c.name() + "(" + c.arguments() + ")").toList());
 			return chatClientResponse;
 		}
-
 		// ---- 纯文本 = 最终回答，做质检判断 ----
 		String text = output.getText();
 		log.info("[质检Advisor] 第 {} 轮为最终回答（{} 字）：{}", currentRound(),
 				text == null ? 0 : text.length(), text);
-
 		int retries = retryCount.get() == null ? 0 : retryCount.get();
 		if (text != null && text.length() < MIN_ANSWER_LENGTH && retries < MAX_RETRIES) {
 			retryCount.set(retries + 1);
@@ -112,7 +109,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		}
 		return chatClientResponse;
 	}
-
 	@Override
 	protected ChatClientResponse doFinalizeLoop(ChatClientResponse chatClientResponse,
 			CallAdvisorChain callAdvisorChain) {
@@ -120,7 +116,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		cleanup();
 		return chatClientResponse;
 	}
-
 	/**
 	 * 重发：先删掉历史里最近一次工具调用交换，再追加"重新调工具"指令，然后 chain.copy(this).nextCall() 调一次 LLM。
 	 *
@@ -140,7 +135,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		if (lastRequest == null) {
 			return original;
 		}
-
 		List<Message> retryInstructions = new ArrayList<>(lastRequest.prompt().getInstructions());
 		String lastToolCall = removeLastToolCallExchange(retryInstructions);
 		String feedback;
@@ -155,15 +149,12 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 			feedback = "你刚才的回答是\"" + shortText + "\"，太简短了。请重新给出更完整、更详细的回答。";
 		}
 		retryInstructions.add(new UserMessage(feedback));
-
 		ChatClientRequest retryRequest = ChatClientRequest.builder()
 			.prompt(new Prompt(retryInstructions, lastRequest.prompt().getOptions()))
 			.context(lastRequest.context())
 			.build();
-
 		log.warn("[质检Advisor] 重发指令：{}", feedback);
 		ChatClientResponse retryResponse = chain.copy(this).nextCall(retryRequest);
-
 		if (retryResponse.chatResponse() != null && retryResponse.chatResponse().hasToolCalls()) {
 			// 带 ToolCall：原样返回，do-while 判定 true 后会进下一轮，工具重新执行（断点在 doBeforeCall 能看到消息数增加）
 			log.info("[质检Advisor] 重发后模型再次请求调用工具，交给 do-while 循环接管 → 进入下一轮");
@@ -176,7 +167,6 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		}
 		return retryResponse;
 	}
-
 	/**
 	 * 从历史里删除最近一次工具调用交换：带 toolCalls 的 AssistantMessage（模型的"我要调这个工具"消息）
 	 * + 其后紧接的 ToolResponseMessage（工具结果消息，一次请求多个工具时有多条）。
@@ -202,30 +192,25 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		}
 		return null;
 	}
-
 	private int currentRound() {
 		Integer r = round.get();
 		return r == null ? -1 : r;
 	}
-
 	private void cleanup() {
 		currentRequest.remove();
 		retryCount.remove();
 		round.remove();
 	}
-
 	/**
 	 * 子类 Builder：泛型自定型（父类 Builder<T extends Builder<T>> 的标准套路），链式方法返回子类类型。
 	 * 注册口子要求 Bean 类型是 ToolCallingAdvisor.Builder<?>，见 AiConfig 里的用法
 	 */
 	public static class Builder extends ToolCallingAdvisor.Builder<Builder> {
-
 		@Override
 		public ToolCallingAdvisor build() {
 			return new QualityCheckToolCallingAdvisor(getToolCallingManager(), getToolExecutionEligibilityChecker(),
 					getAdvisorOrder(), isConversationHistoryEnabled());
 		}
-
 		@Override
 		protected Builder newCopy() {
 			return new Builder();
