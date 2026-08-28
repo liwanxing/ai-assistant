@@ -123,6 +123,13 @@ spring:
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 10000      # 告警邮件卡住不能拖垮定时任务线程，超时烧断
 
+# 日志级别：SimpleLoggerAdvisor 的 request/response 全量日志（DEBUG 级才输出）
+# AiConfig 里已把它的 order 调进工具循环内层，每轮工具调用都会打一对日志（request 历史增长/response 的 toolCalls、finishReason）；
+# 平时不排查时可注释掉，保持控制台干净
+logging:
+  level:
+    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: debug
+
 # OpenTelemetry OTLP导出：把 Micrometer trace 发到 Langfuse
 management:
   tracing:

@@ -1,7 +1,7 @@
 package com.liwx.aiassistant.config;
 
 import com.liwx.aiassistant.chat.advisor.ConversationSummaryAdvisor;
-import com.liwx.aiassistant.chat.advisor.QualityCheckDecoratorAdvisor;
+import com.liwx.aiassistant.chat.advisor.QualityCheckWrappingAdvisor;
 import com.liwx.aiassistant.chat.advisor.SemanticCacheAdvisor;
 import com.liwx.aiassistant.chat.advisor.UserMemoryAdvisor;
 import com.liwx.aiassistant.chat.advisor.core.MediaStrippingChatMemory;
@@ -66,18 +66,20 @@ public class AiConfig {
      * 注意链上只允许存在一个 ToolAdvisor，所以只能“替换”不能“追加”，不要挂进下面的 defaultAdvisors
      * ToolCallingManager 由 ToolCallingAutoConfiguration 自动装配，直接注入即可
      */
-    // ====== 继承版（替换 ToolCallingAdvisor）：已注释暂停，想切回时取消注释、删掉 chatClient 里的装饰器即可 ======
-    // @Bean
-    // public ToolCallingAdvisor.Builder<?> qualityCheckToolCallingAdvisorBuilder(ToolCallingManager toolCallingManager) {
-    //     return new QualityCheckToolCallingAdvisor.Builder()
-    //             .toolCallingManager(toolCallingManager);
-    // }
+    // ====== 两种质检姿势体验开关，同时只开一个（当前：包装版） ======
+    // ① 插层版（order 在 ToolCallingAdvisor 内层，每轮质检工具结果）：取消 chatClient 里 QualityCheckDecoratorAdvisor 的注释 + 注释掉②的 Bean
+    // ② 包装版（GoF 装饰器包 ToolCallingAdvisor，循环结束后质检最终回答）：当前生效
 
     /**
-     * 质检 Advisor（装饰器版）：直接 new 挂进下方 chatClient 的 defaultAdvisors（见 chatClient 方法），
-     * 不要注册成 @Bean——ChatClient 的自动挂载机制只认 ToolCallingAdvisor.Builder<?>，
-     * 普通装饰器 @Bean 并不会自动进链，再在 defaultAdvisors 里 new 一份就是重复误导
+     * 包装版质检装饰器：持有并转发标准 ToolCallingAdvisor，占据其链位置；
+     * 循环结束后质检【最终回答】，不合格带反馈重跑一遍完整循环（外层视角，看不到中间轮的工具结果）。
+     * 插层版则直接 new 挂 defaultAdvisors（见 chatClient 方法），不走这个口子
      */
+    @Bean
+    public ToolCallingAdvisor.Builder<?> qualityCheckWrappingAdvisorBuilder(ToolCallingManager toolCallingManager) {
+        return new QualityCheckWrappingAdvisor.Builder()
+                .toolCallingManager(toolCallingManager);
+    }
 
     /**
      * 构建 ChatClient：注册多轮对话记忆 + 长期记忆 + 摘要压缩 + 日志
@@ -97,9 +99,12 @@ public class AiConfig {
                         new UserMemoryAdvisor(userMemoryService),     // 长期记忆：注入用户偏好 + 异步提取
                         MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build(),
                         new ConversationSummaryAdvisor(summaryService),  // 摘要压缩：超过20轮触发（核心逻辑在 Service）
-                        new SimpleLoggerAdvisor(),  // 官方日志 Advisor：能打印 tools 定义、tool_calls、finish_reason 等完整信息
-                        new SemanticCacheAdvisor(semanticCacheStore),// 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。
-                        new QualityCheckDecoratorAdvisor()  // 装饰器质检：order 在 ToolCallingAdvisor 内层（循环内），每轮去程检查上一轮工具结果，不合格删记录打回重调
+                        // 官方日志 Advisor：默认 order=0 在循环外，一次请求只打总账（入口 request + 最终 response）；
+                        // 传 order 站进工具循环内层（比质检装饰器+100 再大50，避开同值撞车），每轮都能看到
+                        // request（历史增长/工具结果追加）和 response（toolCalls、finishReason=TOOL_CALLS）；排查完改回无参构造即可
+                        new SimpleLoggerAdvisor(ToolCallingAdvisor.DEFAULT_ORDER + 150),
+                        new SemanticCacheAdvisor(semanticCacheStore)  // 语义缓存：命中直接返回缓存答案（0 token 毫秒级）。
+                        // new QualityCheckDecoratorAdvisor()  // ①插层版质检（当前注释：对照包装版中；想切回取消本行注释并去掉上行尾逗号+注释掉②的 Bean）
                 );
 
         // Langfuse 可观测性：@ConditionalOnProperty 控制 Bean 是否创建
