@@ -2,6 +2,7 @@ package com.liwx.aiassistant.chat.advisor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,8 +30,9 @@ import org.springframework.ai.model.tool.ToolExecutionEligibilityChecker;
  *   最后一轮：纯文本——最终回答，质检判断放这里
  *
  * 重发机制：doAfterCall 的返回值会被 do-while 拿去判断 isToolCall——
- * 重发后若模型又请求工具，循环自然接管继续执行；若拿到纯文本，循环退出，重发结果成为最终回答。
- * 不需要自己写循环控制，这正是继承钩子的好处。
+ * 重发时从历史里提取上次工具调用，指令要求"相同参数重调工具"：模型响应带 ToolCall → do-while 判定 true
+ * → 框架自动重新执行工具、结果拼进历史 → 下一轮生成新回答。工具的重新执行由循环接管，不用手工调 ToolCallingManager。
+ * 若重发后模型直接给了纯文本，循环退出，重发结果成为最终回答。不需要自己写循环控制，这正是继承钩子的好处。
  */
 @Slf4j
 public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
@@ -100,7 +102,7 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 
 		if (text != null && text.length() < MIN_ANSWER_LENGTH && !Boolean.TRUE.equals(retried.get())) {
 			retried.set(Boolean.TRUE);
-			log.warn("[质检Advisor] 回答太短（不足 {} 字），带反馈重发一次", MIN_ANSWER_LENGTH);
+			log.warn("[质检Advisor] 回答太短（不足 {} 字），带\"重调工具\"指令重发一次", MIN_ANSWER_LENGTH);
 			return resendWithFeedback(chatClientResponse, callAdvisorChain, text);
 		}
 		return chatClientResponse;
@@ -115,9 +117,13 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 	}
 
 	/**
-	 * 重发：在当轮对话历史末尾追加一条反馈消息，再用 chain.copy(this).nextCall() 调一次 LLM。
+	 * 重发：从当轮对话历史里翻出最近一次工具调用（工具名+参数），排进"相同参数重调工具"的指令追加到历史末尾，
+	 * 再 chain.copy(this).nextCall() 调一次 LLM。
 	 * copy(this) 与父类循环内的调用方式完全一致：排除自己后直达下游的 ChatModelCallAdvisor，
 	 * 不会重穿记忆/缓存等外层 Advisor（它们在洋葱更外层，本来就该对重发无感），也不会递归回本类
+	 *
+	 * 关键衔接：重发响应若带 ToolCall，doAfterCall 原样返回 → 父类 do-while 判定 isToolCall=true
+	 * → ToolCallingManager 自动重新执行工具（相同参数）→ 结果拼进历史 → 下一轮生成新回答
 	 */
 	private ChatClientResponse resendWithFeedback(ChatClientResponse original, CallAdvisorChain chain,
 			String shortText) {
@@ -125,21 +131,57 @@ public class QualityCheckToolCallingAdvisor extends ToolCallingAdvisor {
 		if (lastRequest == null) {
 			return original;
 		}
+
 		List<Message> retryInstructions = new ArrayList<>(lastRequest.prompt().getInstructions());
-		retryInstructions.add(new UserMessage(
-				"你刚才的回答是\"" + shortText + "\"，太简短了。请基于已有信息重新给出更完整、更详细的回答。"));
+		String lastToolCall = findLastToolCall(retryInstructions);
+		String feedback;
+		if (lastToolCall != null) {
+			// 调过工具：指令点名工具名+参数，要求重调拿新数据再重新作答
+			feedback = "你刚才的回答是\"" + shortText + "\"，质检不满意。"
+					+ "请用与之前完全相同的参数重新调用 " + lastToolCall
+					+ " 获取最新数据，然后基于新的工具结果重新回答。";
+		}
+		else {
+			// 没调过工具（纯闲聊回答）：退化为要求重答
+			feedback = "你刚才的回答是\"" + shortText + "\"，太简短了。请重新给出更完整、更详细的回答。";
+		}
+		retryInstructions.add(new UserMessage(feedback));
 
 		ChatClientRequest retryRequest = ChatClientRequest.builder()
 			.prompt(new Prompt(retryInstructions, lastRequest.prompt().getOptions()))
 			.context(lastRequest.context())
 			.build();
 
+		log.warn("[质检Advisor] 重发指令：{}", feedback);
 		ChatClientResponse retryResponse = chain.copy(this).nextCall(retryRequest);
-		String retryText = retryResponse.chatResponse() != null && retryResponse.chatResponse().getResult() != null
-				? retryResponse.chatResponse().getResult().getOutput().getText()
-				: null;
-		log.info("[质检Advisor] 重发完成，新回答（{} 字）：{}", retryText == null ? 0 : retryText.length(), retryText);
+
+		if (retryResponse.chatResponse() != null && retryResponse.chatResponse().hasToolCalls()) {
+			// 带 ToolCall：原样返回，do-while 判定 true 后会进下一轮，工具重新执行（断点在 doBeforeCall 能看到消息数增加）
+			log.info("[质检Advisor] 重发后模型再次请求调用工具，交给 do-while 循环接管 → 进入下一轮");
+		}
+		else {
+			String retryText = retryResponse.chatResponse() != null && retryResponse.chatResponse().getResult() != null
+					? retryResponse.chatResponse().getResult().getOutput().getText()
+					: null;
+			log.info("[质检Advisor] 重发完成，新回答（{} 字）：{}", retryText == null ? 0 : retryText.length(), retryText);
+		}
 		return retryResponse;
+	}
+
+	/**
+	 * 从对话历史反向找最近一次工具调用：返回 "工具名(参数JSON)" 描述，没调过工具返回 null。
+	 * 工具调用请求挂在 AssistantMessage 的 toolCalls 上（模型返回的"我要调这个工具"消息）
+	 */
+	private String findLastToolCall(List<Message> instructions) {
+		for (int i = instructions.size() - 1; i >= 0; i--) {
+			Message msg = instructions.get(i);
+			if (msg instanceof AssistantMessage am && am.getToolCalls() != null && !am.getToolCalls().isEmpty()) {
+				return am.getToolCalls().stream()
+					.map(c -> c.name() + "(" + c.arguments() + ")")
+					.collect(Collectors.joining(", "));
+			}
+		}
+		return null;
 	}
 
 	private int currentRound() {
